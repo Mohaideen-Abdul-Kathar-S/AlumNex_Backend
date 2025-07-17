@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Image Upload and Display</title>
+</head>
+<body>
+    <h1>Upload and Display Image</h1>
+
+    <!-- Image upload form -->
+    <input type="file" id="imageInput" accept="image/*">
+    <button onclick="uploadImage()">Upload Image</button>
+
+    <br><br>
+
+    <!-- Button to fetch and display image -->
+    <button onclick="displayImage()">Display Latest Image</button>
+
+    <br><br>
+
+    <!-- Display image list -->
+    <h3>Available Images:</h3>
+    <ul id="imageList"></ul>
+
+    <br><br>
+
+    <!-- Where the image will be displayed -->
+    <img id="displayedImage" width="300" alt="Stored Image will appear here">
+
+    <script>
+        // Fetch and display the list of images from the server
+        async function fetchImageList() {
+            const response = await fetch('http://127.0.0.1:5000/list-images');
+            const images = await response.json();
+
+            const imageList = document.getElementById('imageList');
+            imageList.innerHTML = '';
+
+            images.forEach(image => {
+                const listItem = document.createElement('li');
+                listItem.textContent = image.filename;
+                listItem.onclick = () => displaySelectedImage(image.id);
+                imageList.appendChild(listItem);
+            });
+        }
+
+        // Upload the image to the Flask backend
+        async function uploadImage() {
+            const input = document.getElementById('imageInput');
+            const file = input.files[0];
+
+            if (!file) {
+                alert('Please select an image first.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('image', file);
+
+            const response = await fetch('http://127.0.0.1:5000/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            alert(result.message);
+            fetchImageList();  // Refresh the list of images
+        }
+
+        // Display the latest uploaded image
+        async function displayImage() {
+            const response = await fetch('http://127.0.0.1:5000/get-image');
+            const blob = await response.blob();
+            const imageUrl = URL.createObjectURL(blob);
+            document.getElementById('displayedImage').src = imageUrl;
+        }
+
+        // Display selected image by its ID
+       // Display selected image by its ID
+async function displaySelectedImage(imageId) {
+    try {
+        const response = await fetch(`http://127.0.0.1:5000/get-image-by-id?id=${imageId}`);
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch image');
+        }
+        
+        const blob = await response.blob();
+        const imageUrl = URL.createObjectURL(blob);
+        document.getElementById('displayedImage').src = imageUrl;
+    } catch (error) {
+        alert('Error fetching image: ' + error.message);
+    }
+}
+
+
+        // Fetch the list of images when the page loads
+        window.onload = fetchImageList;
+    </script>
+</body>
+</html>

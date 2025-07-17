@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Image to Text OCR</title>
+</head>
+<body>
+  <h1>Upload an Image for OCR</h1>
+  
+  <input type="file" id="imageInput" accept="image/*">
+  <button onclick="uploadImage()">Extract Text</button>
+
+  <h3>Extracted Text:</h3>
+  <textarea id="textOutput" rows="10" cols="80" placeholder="Extracted text will appear here..."></textarea>
+
+  <!-- Button to download extracted text -->
+  <button onclick="downloadText()">Download Text</button>
+
+  <script>
+    async function uploadImage() {
+      const input = document.getElementById('imageInput');
+      const file = input.files[0];
+      if (!file) return alert('Please select an image');
+
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Image = reader.result;
+
+        const response = await fetch('http://127.0.0.1:5000/upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ image: base64Image })
+        });
+
+        const data = await response.json();
+        // Check for error or text in the response
+        if (data.text) {
+          document.getElementById('textOutput').value = data.text;
+        } else {
+          document.getElementById('textOutput').value = 'Error: ' + (data.error || 'No text found');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Function to download the extracted text
+    function downloadText() {
+      const text = document.getElementById('textOutput').value;
+      if (!text) return alert('No text to download');
+
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'extracted_text.txt'; // Name of the downloaded file
+      link.click();
+      URL.revokeObjectURL(url); // Clean up
+    }
+  </script>
+</body>
+</html>
