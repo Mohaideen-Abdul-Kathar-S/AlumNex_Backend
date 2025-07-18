@@ -14,13 +14,19 @@ import fitz  # PyMuPDF
 
 app = Flask(__name__)
 CORS(app)
-client = MongoClient('mongodb://localhost:27017/')
-db = client['AlumNex']
-fs = gridfs.GridFS(db)
+try:
+    client = MongoClient("mongodb://localhost:27017")
+    db = client["alumnex"]
+    fs = gridfs.GridFS(db)
+    print("✅ MongoDB connected successfully!")
+except Exception as e:
+    print("❌ Failed to connect to MongoDB:", e)
+
 
 @cross_origin()
 @app.route('/login', methods=['POST'])
 def UserLogin():
+    print("login")
     data = request.json
     rollno = data.get('rollno')
     password = data.get('password')
@@ -40,6 +46,7 @@ def UserLogin():
 @cross_origin
 @app.route('/register', methods=['POST'])
 def UserRegister():
+    print("Reg")
     data = request.json
     rollno = data.get('_id')
     
