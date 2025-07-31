@@ -10,6 +10,8 @@ import gridfs
 import io
 import re
 import fitz  # PyMuPDF
+import google.generativeai as genai
+import os
 
 
 app = Flask(__name__)
@@ -21,6 +23,43 @@ try:
     print("✅ MongoDB connected successfully!")
 except Exception as e:
     print("❌ Failed to connect to MongoDB:", e)
+
+
+
+
+# Configure Gemini with your API key (secure this in prod)
+genai.configure(api_key="AIzaSyCbVGKRCYZY8Z5dy2jAMQuxdUQ4Je4NxxU")
+
+# Initialize the model globally (reuse for efficiency)
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+
+
+@cross_origin()
+@app.route('/aura_assistant', methods=['POST'])
+def aura_assistant_response():
+    data = request.json
+    user_query = data.get('query')
+    student_context = data.get('context', {})
+
+    if not user_query:
+        return jsonify({"error": "Missing 'query' in request."}), 400
+
+    # Personalize if context provided
+    if student_context:
+        intro = f"The user is a {student_context.get('year')} {student_context.get('branch')} student interested in {', '.join(student_context.get('interests', []))}. "
+        full_prompt = intro + user_query
+    else:
+        full_prompt = user_query
+
+    try:
+        response = model.generate_content(full_prompt)
+        return jsonify({"response": response.text.strip()})
+    except Exception as e:
+        print("Gemini API Error:", e)
+        return jsonify({"error": str(e)}), 500
+
+
 
 
 @cross_origin()
