@@ -11,7 +11,7 @@ import io
 import re
 import fitz  # PyMuPDF
 import google.generativeai as genai
-import os
+import os,uuid
 
 
 app = Flask(__name__)
@@ -40,7 +40,9 @@ model = genai.GenerativeModel("gemini-1.5-flash")
 def aura_assistant_response():
     data = request.json
     user_query = data.get('query')
-    student_context = data.get('context', {})
+    student_context = dict(data.get('context', {}))
+    print(student_context['id'])
+    collection = db['AIChats']
 
     if not user_query:
         return jsonify({"error": "Missing 'query' in request."}), 400
@@ -54,6 +56,12 @@ def aura_assistant_response():
 
     try:
         response = model.generate_content(full_prompt)
+        collection.insert_one({
+    '_id': str(uuid.uuid4()),
+    'student_id': student_context['id'],
+    'msg': user_query,
+    'response': response.text.strip()
+})
         return jsonify({"response": response.text.strip()})
     except Exception as e:
         print("Gemini API Error:", e)
@@ -241,14 +249,14 @@ def upload_resume():
         "interests": re.search(r"(Backend Developer.*?)Spring Boot", text, re.DOTALL),
         "domain": re.search(r"(Spring Boot, Flutter.*?)Figma", text, re.DOTALL),
     }
-    
+    print(extracted_data)
     parsed_resume = {
-        "name": extracted_data["name"].group(1).strip() if extracted_data["name"] else None,
-        "email": extracted_data["email"].group(1).strip() if extracted_data["email"] else None,
-        "phoneno": extracted_data["phoneno"].group(1).strip() if extracted_data["phoneno"] else None,
-        "dob": extracted_data["dob"].group(1).strip() if extracted_data["dob"] else None,
-        "Gender": extracted_data["Gender"].group(1).strip() if extracted_data["Gender"] else None,
-        "location": extracted_data["location"].group(1).strip() if extracted_data["location"] else None,
+        "name": extracted_data["name"].group(1).strip() if extracted_data["name"] else "Nill",
+        # "email": extracted_data["email"].group(1).strip() if extracted_data["email"] else None,
+        "phoneno": extracted_data["phoneno"].group(1).strip() if extracted_data["phoneno"] else "Nill",
+        "dob": extracted_data["dob"].group(1).strip() if extracted_data["dob"] else "Nill",
+        "Gender": extracted_data["Gender"].group(1).strip() if extracted_data["Gender"] else "Nill",
+        "location": extracted_data["location"].group(1).strip() if extracted_data["location"] else "Nill",
         "Batch": extracted_data["Batch"].group(1).strip() if extracted_data["Batch"] else None,
         "preferredroll": extracted_data["preferredroll"].group(1).strip() if extracted_data["preferredroll"] else None,
         "Higherstudies": extracted_data["Higherstudies"].group(1).strip() if extracted_data["Higherstudies"] else None,
@@ -281,7 +289,7 @@ def upload_resume():
         },
         upsert=True
     )
-
+    print(str(file_id))
     return jsonify({
         "message": "Resume uploaded and content extracted successfully",
         "file_id": str(file_id),
@@ -482,8 +490,9 @@ def get_like():
     if res is None:
         return jsonify({'like_count': 0}), 404
 
-    like_count = len(res.get('likeset', []))  # fallback to empty list if not exists
-    return jsonify({'like_count': like_count}), 200
+    like_count = len(res.get('likeset', [])) 
+    comments_count = len(res.get('comments',[])) # fallback to empty list if not exists
+    return jsonify({'like_count': like_count,"comments_count" : comments_count}), 200
 
 
 # Get like state for a specific user (whether the rollno has liked the post or not)
@@ -1052,6 +1061,26 @@ def get_comments(post_id):
 
     comments = post.get("comments", {})
     return jsonify(comments), 200
+
+@app.route('/get_detsils_leaderboard', methods=['GET'])
+def get_details_leaderboard():
+    users_col = db['users']
+    posts_col = db['posts']
+    users = users_col.find({}, {"_id": 1, "name": 1, "roll": 1, "profile": 1, "postsids": 1})
+    leaderboard = []
+    for user in users:
+        user_posts = posts_col.find({"_id": {"$in": [ObjectId(post_id) for post_id in user.get("postsids", [])]}})
+        total_likes = sum(len(post.get("likeset", [])) for post in user_posts)
+        
+        leaderboard.append({
+            "_id": user["_id"],
+            "roll": user["roll"],
+            "name": user["name"],
+            "profile": user.get("profile", None),
+            "total_likes": total_likes
+        })
+    leaderboard.sort(key=lambda x: x["total_likes"], reverse=True)
+    return jsonify(leaderboard),200
 
 
 
