@@ -188,8 +188,11 @@ app.add_middleware(
 # 📦 MongoDB setup
 # ---------------------------
 try:
-    client = MongoClient("mongodb://localhost:27017")
-    db = client["alumnex"]
+    # Get from environment variable
+    MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://mohaideenabdulkathars23csd:DzSbHU79AfKPkOk6@cluster0.8v7rv29.mongodb.net/alumnex?retryWrites=true&w=majority&appName=Cluster0")
+    
+    client = MongoClient(MONGO_URI)
+    db = client["alumnex"]   # your DB name
     fs = gridfs.GridFS(db)
     print("✅ MongoDB connected successfully!")
 except Exception as e:

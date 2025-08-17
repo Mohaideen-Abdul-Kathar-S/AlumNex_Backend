@@ -1,5 +1,15 @@
+# FastAPI stack
 fastapi
 uvicorn[standard]
 python-multipart
 pypdf2
 google-generativeai
+
+# Flask stack
+flask
+gunicorn
+
+# MongoDB
+pymongo
+dnspython
+gridfs
