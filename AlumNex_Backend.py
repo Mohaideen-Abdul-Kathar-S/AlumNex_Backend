@@ -12,6 +12,14 @@ import re
 import fitz  # PyMuPDF
 import google.generativeai as genai
 import os,uuid
+from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
+from pymongo import MongoClient, ASCENDING
+from bson import ObjectId
+import gridfs, io, datetime
+import fitz  # PyMuPDF
+
+
 # import os
 # from typing import Dict, Any
 
@@ -150,39 +158,63 @@ model = genai.GenerativeModel("gemini-1.5-flash")
 #     except Exception as e:
 #         raise HTTPException(status_code=500, detail=f"Gemini error: {e}")
 
-
-@cross_origin()
 @app.route('/aura_assistant', methods=['POST'])
+@cross_origin()
 def aura_assistant_response():
     data = request.json
     user_query = data.get('query')
-    student_context = dict(data.get('context', {}))
-    print(student_context['id'])
+    req_context = dict(data.get('context', {}))  # raw context from request
+
     collection = db['AIChats']
+    user_cols = db['users']
 
     if not user_query:
         return jsonify({"error": "Missing 'query' in request."}), 400
 
-    # Personalize if context provided
-    if student_context:
-        intro = f"The user is a {student_context.get('year')} {student_context.get('branch')} student interested in {', '.join(student_context.get('interests', []))}. "
-        full_prompt = intro + user_query
+    # Fetch student context from DB if id exists
+    student_context = {}
+    if 'id' in req_context:
+        student_context = user_cols.find_one(
+            {"_id": req_context['id']},
+            {"_id": 1, "fields": 1, "roll": 1}
+        ) or {}
+
+    # Personalize query
+    greetings = ["hi", "hello", "hey", "hiya"]
+
+    if user_query.strip().lower() in greetings:
+        # Return a short greeting instead of long info
+        response_text = f"Hi! I'm Aura Assistant, your alumni mentor. How can I help you today?"
     else:
-        full_prompt = user_query
+        # Personalized mentor response based on role
+        role = student_context.get('roll', 'Student')
+        if role == "Student":
+            full_prompt = (
+                f"You are Aura Assistant, an alumni mentor chatbot. "
+                f"Guide this student on academics, career, and networking: {user_query}"
+            )
+        elif role == "Alumni":
+            full_prompt = (
+                f"You are Aura Assistant, an alumni mentor chatbot. "
+                f"Guide this alumni on career growth, mentorship, and opportunities: {user_query}"
+            )
+
 
     try:
         response = model.generate_content(full_prompt)
+
         collection.insert_one({
-    '_id': str(uuid.uuid4()),
-    'student_id': student_context['id'],
-    'msg': user_query,
-    'response': response.text.strip()
-})
+            '_id': str(uuid.uuid4()),
+            'student_id': str(student_context.get('_id', req_context.get('id'))),
+            'msg': user_query,
+            'response': response.text.strip()
+        })
+
         return jsonify({"response": response.text.strip()})
+
     except Exception as e:
         print("Gemini API Error:", e)
         return jsonify({"error": str(e)}), 500
-
 
 
 
@@ -1288,10 +1320,207 @@ def create_community():
         print("Error creating community:", str(e))
         return jsonify({"error": str(e)}), 500
 
+def get_current_template_bytes():
+    settings = db["settings"] 
+    cfg = settings.find_one({"key": "certificate_template"})
+    if not cfg or "file_id" not in cfg:
+        # No template uploaded yet
+        return None
+    gfile = fs.get(ObjectId(cfg["file_id"]))
+    return gfile.read()
+
+def get_host_signature_bytes(host_id: str):
+    settings = db["settings"] 
+    cfg = settings.find_one({"key": "host_signature", "host_id": host_id})
+    if not cfg or "file_id" not in cfg:
+        return None
+    gfile = fs.get(ObjectId(cfg["file_id"]))
+    return gfile.read()
+
+def put_pdf_to_gridfs(pdf_bytes: bytes, filename: str, metadata: dict):
+    return fs.put(pdf_bytes, filename=filename, **({"metadata": metadata} if metadata else {}))
+
+def make_certificate_pdf(template_bytes: bytes, student_name_or_id: str, signature_bytes: bytes | None):
+    """
+    Draws centered name/ID and optional signature onto page 1 of the template.
+    """
+    doc = fitz.open(stream=template_bytes, filetype="pdf")
+    page = doc[0]
+
+    PAGE_W, PAGE_H = page.rect.width, page.rect.height
+    name_fontsize = 30  
+
+    # --- Name box (taller, under "presented to") ---
+    name_box = fitz.Rect(PAGE_W * 0.15, PAGE_H * 0.36, PAGE_W * 0.85, PAGE_H * 0.48)
+
+    # DEBUG: draw rectangle outline (red) to see position
+    page.draw_rect(name_box, color=(1, 0, 0), width=1)
+
+    text = f"{student_name_or_id}"
+
+    # Use guaranteed font + black color
+    rc = page.insert_textbox(
+        name_box,
+        text,
+        fontsize=name_fontsize,
+        fontname="Helvetica",
+        align=1,           # center
+        color=(0, 0, 0)    # black
+    )
+
+    if rc == 0:
+        print("⚠️ Text did not fit in the box, try larger height or smaller fontsize")
+
+    # --- Signature (bottom-right) ---
+    if signature_bytes:
+        sig_rect = fitz.Rect(PAGE_W * 0.65, PAGE_H * 0.80, PAGE_W * 0.90, PAGE_H * 0.90)
+        page.insert_image(sig_rect, stream=signature_bytes, keep_proportion=True)
+
+    out = io.BytesIO()
+    doc.save(out)
+    doc.close()
+    return out.getvalue()
 
 
+@app.post("/template")
+def upload_template():
+    """
+    Upload once (multipart/form-data: file=template.pdf).
+    Stored in GridFS; settings.key=certificate_template points to it.
+    """
+    settings = db["settings"] 
+    if "file" not in request.files:
+        return jsonify({"error": "file field required"}), 400
+    f = request.files["file"]
+    if not f.filename.lower().endswith(".pdf"):
+        return jsonify({"error": "Please upload a PDF template"}), 400
+
+    file_id = fs.put(f.read(), filename=f.filename, content_type="application/pdf")
+    settings.update_one(
+        {"key": "certificate_template"},
+        {"$set": {"file_id": str(file_id), "updated_at": datetime.now(timezone.utc)}},
+        upsert=True
+    )
+    return jsonify({"ok": True, "template_file_id": str(file_id)}), 200
+
+@app.post("/signature")
+def upload_signature():
+    """
+    Upload (multipart/form-data: file=signature.png|jpg, host_id=string).
+    Stores per-host signature in GridFS and records in settings.
+    """
+    settings = db["settings"] 
+    host_id = request.form.get("host_id")
+    if not host_id:
+        return jsonify({"error": "host_id is required"}), 400
+    if "file" not in request.files:
+        return jsonify({"error": "file field required"}), 400
+    f = request.files["file"]
+    if not (f.filename.lower().endswith(".png") or f.filename.lower().endswith(".jpg") or f.filename.lower().endswith(".jpeg")):
+        return jsonify({"error": "Upload PNG/JPG signature"}), 400
+
+    file_id = fs.put(f.read(), filename=f.filename, content_type="image/*")
+    settings.update_one(
+        {"key": "host_signature", "host_id": host_id},
+        {"$set": {"file_id": str(file_id), "updated_at": datetime.now(timezone.utc)}},
+        upsert=True
+    )
+    return jsonify({"ok": True, "signature_file_id": str(file_id), "host_id": host_id}), 200
 
 
+@app.post("/distribute_certificates")
+def distribute_certificates():
+    """
+    JSON: { "meet_id": "<_id string>" }
+    - Loads meeting
+    - Loads current template & host signature
+    - Generates a certificate per member
+    - Stores each in GridFS and upserts into certificates collection
+    """
+    meetings = db["meetings"]
+    certificates = db["certificates"]
+    payload = request.get_json(silent=True) or {}
+    meet_id = payload.get("meet_id")
+    if not meet_id:
+        return jsonify({"error": "meet_id required"}), 400
+
+    # Load meeting
+    try:
+        meeting = meetings.find_one({"_id": ObjectId(meet_id)})
+    except:
+        meeting = None
+    if not meeting:
+        return jsonify({"error": "meeting not found"}), 404
+
+    members = meeting.get("members", [])
+    host_id = str(meeting.get("host_id", ""))
+
+    template_bytes = get_current_template_bytes()
+    if not template_bytes:
+        return jsonify({"error": "no certificate template uploaded"}), 400
+
+    signature_bytes = get_host_signature_bytes(host_id)  # may be None
+
+    results = []
+    for sid in members:
+        print(sid)
+        # If you have a 'students' collection with names, you could look up here.
+        # stu = db.students.find_one({"student_id": sid})
+        # name_or_id = stu["name"] if stu and stu.get("name") else sid
+        name_or_id = sid  # fallback to student ID as requested
+
+        pdf_bytes = make_certificate_pdf(template_bytes, name_or_id, signature_bytes)
+        grid_id = put_pdf_to_gridfs(
+            pdf_bytes,
+            filename=f"{meet_id}_{sid}.pdf",
+            metadata={"meet_id": meet_id, "student_id": sid}
+        )
+
+        # Upsert certificate record
+        certificates.update_one(
+            {"meet_id": meet_id, "student_id": sid},
+            {"$set": {
+                "meet_id": meet_id,
+                "student_id": sid,
+                "certificate_file_id": str(grid_id),
+                "updated_at": datetime.now(timezone.utc)
+
+
+            }},
+            upsert=True
+        )
+        results.append({"student_id": sid, "certificate_file_id": str(grid_id)})
+
+    return jsonify({
+        "ok": True,
+        "meet_id": meet_id,
+        "generated_count": len(results),
+        "items": results
+    }), 200
+
+
+@app.get("/certificate_file/<meet_id>/<student_id>")
+def get_certificate_file(meet_id, student_id):
+    """
+    Streams a certificate PDF for a given meet_id + student_id.
+    Looks up certificate_file_id from certificates collection.
+    """
+    certificates = db["certificates"] 
+    cert = certificates.find_one({"meet_id": meet_id, "student_id": student_id})
+    if not cert or "certificate_file_id" not in cert:
+        return jsonify({"error": "certificate not found"}), 404
+
+    try:
+        gf = fs.get(ObjectId(cert["certificate_file_id"]))
+    except:
+        return jsonify({"error": "invalid file id"}), 400
+
+    return send_file(
+        io.BytesIO(gf.read()),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=gf.filename or f"{student_id}_{meet_id}.pdf"
+    )
 
 
 
