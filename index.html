@@ -1,63 +1,153 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Image to Text OCR</title>
+  <meta charset="utf-8" />
+  <title>Resume Parser — Gemini + MongoDB</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    #pdfViewer { min-height: 600px; }
+    .hidden { display: none; }
+  </style>
 </head>
-<body>
-  <h1>Upload an Image for OCR</h1>
-  
-  <input type="file" id="imageInput" accept="image/*">
-  <button onclick="uploadImage()">Extract Text</button>
+<body class="min-h-screen bg-gray-50">
+  <div class="max-w-5xl mx-auto p-6 space-y-6">
+    <header>
+      <h1 class="text-3xl font-bold">Resume Parser</h1>
+      <p class="text-gray-600">Upload a PDF, store in MongoDB, parse fields with Gemini, and view it anytime.</p>
+    </header>
 
-  <h3>Extracted Text:</h3>
-  <textarea id="textOutput" rows="10" cols="80" placeholder="Extracted text will appear here..."></textarea>
+    <!-- CONFIG -->
+    <section class="bg-white rounded-2xl shadow p-6">
+      <div class="grid md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium mb-2">Backend Base URL</label>
+          <input id="baseUrl" type="text" class="w-full border rounded-xl px-3 py-2" value="http://localhost:8000" />
+          <p class="text-xs text-gray-500">Change if your FastAPI runs elsewhere.</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-2">User ID</label>
+          <input id="userId" type="text" class="w-full border rounded-xl px-3 py-2" placeholder="22CSE001" />
+          <p class="text-xs text-gray-500">Resume will be stored against this ID.</p>
+        </div>
+      </div>
+    </section>
 
-  <!-- Button to download extracted text -->
-  <button onclick="downloadText()">Download Text</button>
+    <!-- UPLOAD & PARSE -->
+    <section class="bg-white rounded-2xl shadow p-6 space-y-4">
+      <form id="uploadForm" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-2">Choose Resume (PDF)</label>
+          <input id="fileInput" type="file" accept="application/pdf" class="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-gray-100 hover:file:bg-gray-200" required />
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="parseBtn" type="submit" class="px-5 py-2 rounded-2xl bg-black text-white font-medium shadow hover:opacity-90">Upload & Parse</button>
+          <div id="status" class="hidden items-center gap-2 text-sm text-gray-700">
+            <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" fill="none" stroke-width="4" opacity="0.25"></circle>
+              <path d="M4 12a8 8 0 0 1 8-8" stroke="currentColor" stroke-width="4" fill="none"></path>
+            </svg>
+            <span>Working…</span>
+          </div>
+        </div>
+      </form>
+
+      <pre id="errorBox" class="hidden whitespace-pre-wrap text-sm text-red-600 bg-red-50 p-3 rounded-xl"></pre>
+
+      <div id="parsedBox" class="hidden">
+        <h2 class="text-xl font-semibold mb-3">Extracted Fields</h2>
+        <div id="resultTable" class="overflow-x-auto"></div>
+
+        <details class="mt-4">
+          <summary class="cursor-pointer text-sm text-gray-600">Raw JSON</summary>
+          <pre id="rawJson" class="mt-2 bg-gray-900 text-gray-50 text-xs p-4 rounded-xl overflow-x-auto"></pre>
+        </details>
+      </div>
+    </section>
+
+    <!-- VIEW STORED PDF -->
+    <section class="bg-white rounded-2xl shadow p-6 space-y-4">
+      <div class="flex items-center gap-3">
+        <button id="viewBtn" class="px-5 py-2 rounded-2xl bg-gray-900 text-white font-medium shadow hover:opacity-90">View Stored Resume</button>
+        <a id="downloadLink" class="px-5 py-2 rounded-2xl bg-gray-100 text-gray-900 font-medium shadow hover:bg-gray-200 hidden">Download PDF</a>
+      </div>
+      <div id="pdfWrap" class="border rounded-xl overflow-hidden">
+        <iframe id="pdfViewer" class="w-full" title="Stored Resume PDF"></iframe>
+      </div>
+      <p class="text-xs text-gray-500">If inline PDF is blocked, click “Download PDF”.</p>
+    </section>
+  </div>
 
   <script>
-    async function uploadImage() {
-      const input = document.getElementById('imageInput');
-      const file = input.files[0];
-      if (!file) return alert('Please select an image');
+    const form = document.getElementById('uploadForm');
+    const fileInput = document.getElementById('fileInput');
+    const parseBtn = document.getElementById('parseBtn');
+    const statusEl = document.getElementById('status');
+    const errorBox = document.getElementById('errorBox');
+    const parsedBox = document.getElementById('parsedBox');
+    const resultTable = document.getElementById('resultTable');
+    const rawJson = document.getElementById('rawJson');
+    const baseUrlEl = document.getElementById('baseUrl');
+    const userIdEl = document.getElementById('userId');
+    const viewBtn = document.getElementById('viewBtn');
+    const pdfViewer = document.getElementById('pdfViewer');
+    const downloadLink = document.getElementById('downloadLink');
 
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64Image = reader.result;
+    function show(el){ el.classList.remove('hidden'); }
+    function hide(el){ el.classList.add('hidden'); }
 
-        const response = await fetch('http://127.0.0.1:5000/upload', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ image: base64Image })
-        });
-
-        const data = await response.json();
-        // Check for error or text in the response
-        if (data.text) {
-          document.getElementById('textOutput').value = data.text;
-        } else {
-          document.getElementById('textOutput').value = 'Error: ' + (data.error || 'No text found');
-        }
-      };
-      reader.readAsDataURL(file);
+    function renderTable(obj) {
+      const rows = Object.entries(obj).map(([k, v]) => {
+        const value = (typeof v === 'string') ? v : JSON.stringify(v);
+        return `<tr class="border-b last:border-none"><td class="py-2 pr-4 font-medium align-top">${k}</td><td class="py-2">${value || '<span class="text-gray-400">—</span>'}</td></tr>`;
+      }).join('');
+      resultTable.innerHTML = `<table class="w-full text-sm"><tbody>${rows}</tbody></table>`;
     }
 
-    // Function to download the extracted text
-    function downloadText() {
-      const text = document.getElementById('textOutput').value;
-      if (!text) return alert('No text to download');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hide(errorBox); hide(parsedBox); show(statusEl);
+      parseBtn.disabled = true;
 
-      const blob = new Blob([text], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'extracted_text.txt'; // Name of the downloaded file
-      link.click();
-      URL.revokeObjectURL(url); // Clean up
-    }
+      const baseUrl = baseUrlEl.value.trim();
+      const userId = userIdEl.value.trim();
+      const file = fileInput.files[0];
+      if (!baseUrl || !userId || !file) { alert('Fill all fields'); hide(statusEl); parseBtn.disabled = false; return; }
+
+      try {
+        const fd = new FormData();
+        fd.append('user_id', userId);
+        fd.append('file', file, file.name);
+
+        const res = await fetch(`${baseUrl}/upload-resume`, { method: 'POST', body: fd });
+        if (!res.ok) throw new Error((await res.json()).detail || `HTTP ${res.status}`);
+
+        const data = await res.json();
+        renderTable(data);
+        rawJson.textContent = JSON.stringify(data, null, 2);
+        show(parsedBox);
+
+        const pdfUrl = `${baseUrl}/get-resume/${encodeURIComponent(userId)}`;
+        pdfViewer.src = pdfUrl;
+        downloadLink.href = pdfUrl;
+        show(downloadLink);
+      } catch (err) {
+        errorBox.textContent = 'Error: ' + (err.message || err);
+        show(errorBox);
+      } finally {
+        hide(statusEl); parseBtn.disabled = false;
+      }
+    });
+
+    viewBtn.addEventListener('click', () => {
+      const baseUrl = baseUrlEl.value.trim();
+      const userId = userIdEl.value.trim();
+      if (!baseUrl || !userId) { alert('Enter Base URL and User ID'); return; }
+      const pdfUrl = `${baseUrl}/get-resume/${encodeURIComponent(userId)}`;
+      pdfViewer.src = pdfUrl;
+      downloadLink.href = pdfUrl;
+      show(downloadLink);
+    });
   </script>
 </body>
 </html>
