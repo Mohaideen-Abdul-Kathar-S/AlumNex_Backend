@@ -12,4 +12,4 @@ gunicorn
 # MongoDB
 pymongo
 dnspython
-gridfs
+
