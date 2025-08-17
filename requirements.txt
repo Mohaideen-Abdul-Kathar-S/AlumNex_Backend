@@ -8,8 +8,12 @@ google-generativeai
 # Flask stack
 flask
 gunicorn
+flask-cors
 
 # MongoDB
 pymongo
 dnspython
+gridfs
 
+# PDF handling
+pymupdf
