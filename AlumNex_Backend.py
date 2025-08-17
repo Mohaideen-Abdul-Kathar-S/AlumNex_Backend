@@ -12,7 +12,16 @@ import re
 import fitz  # PyMuPDF
 import google.generativeai as genai
 import os,uuid
+# import os
+# from typing import Dict, Any
 
+# from fastapi import FastAPI, File, UploadFile, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from fastapi.responses import JSONResponse
+
+# import google.generativeai as genai
+# from PyPDF2 import PdfReader
+# from io import BytesIO
 
 app = Flask(__name__)
 CORS(app)
@@ -33,6 +42,113 @@ genai.configure(api_key="AIzaSyCbVGKRCYZY8Z5dy2jAMQuxdUQ4Je4NxxU")
 # Initialize the model globally (reuse for efficiency)
 model = genai.GenerativeModel("gemini-1.5-flash")
 
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],  # adjust for your domain in production
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # ---------------------------
+# # 🧠 Helper: extract text from PDF
+# # ---------------------------
+# def extract_text_from_pdf(file_bytes: bytes) -> str:
+#     try:
+#         reader = PdfReader(BytesIO(file_bytes))
+#         text_parts = []
+#         for page in reader.pages:
+#             # NOTE: scanned PDFs may return None; OCR can be added later
+#             t = page.extract_text() or ""
+#             text_parts.append(t)
+#         text = "\n".join(text_parts).strip()
+#         return text
+#     except Exception as e:
+#         raise HTTPException(status_code=400, detail=f"Failed to read PDF: {e}")
+
+# # ---------------------------
+# # 🎯 Fields we want (customize freely)
+# # ---------------------------
+# FIELDS = [
+#     "Full Name",
+#     "Email",
+#     "Skills",
+#     "Currently Studying",
+#     "Gender",
+#     "Phone Number",
+#     "Location",
+#     "Program Branch",
+#     "Batch",
+#     "Preferred Role",
+#     "Higher Studies",
+#     "Dream Company",
+#     "Technical Skills",
+#     "Certification",
+#     "Projects",
+#     "Clubs",
+#     "Domain",
+#     "Current Job",
+#     "Company",
+#     "Experience Year",
+#     "Working In"
+# ]
+
+# # ---------------------------
+# # 🧾 Endpoint: POST /parse
+# # ---------------------------
+# @app.post("/parse")
+# async def parse_resume(file: UploadFile = File(...)) -> Dict[str, Any]:
+#     if not file.filename.lower().endswith(".pdf"):
+#         raise HTTPException(status_code=400, detail="Please upload a PDF file.")
+
+#     file_bytes = await file.read()
+#     resume_text = extract_text_from_pdf(file_bytes)
+#     if not resume_text:
+#         raise HTTPException(
+#             status_code=422,
+#             detail="No extractable text found in the PDF. If it's a scanned image, add OCR."
+#         )
+
+#     # Ask Gemini to return STRICT JSON with the fields above
+#     schema_example = {k: "" for k in FIELDS}
+#     prompt = f"""
+# You are a resume parser. Read the resume text and return a strict JSON object with EXACTLY these keys:
+
+# {FIELDS}
+
+# Rules:
+# - If a field is unknown or not found, use an empty string "".
+# - For "Skills" or "Technical Skills", return a comma-separated string (not an array).
+# - For "Projects" and "Clubs", return a semicolon-separated string if multiple.
+# - Do NOT include any keys other than the ones listed.
+# - Do NOT add explanations.
+
+# Return JSON ONLY.
+
+# Resume Text:
+# {resume_text}
+# """
+
+#     try:
+#         resp = model.generate_content(prompt)
+#         # resp.text should be pure JSON because of response_mime_type
+#         # but we still guard against empty/invalid response
+#         text = (resp.text or "").strip()
+#         if not text:
+#             raise ValueError("Empty response from Gemini.")
+#         # FastAPI will validate/pretty-print JSON automatically if we load it
+#         # But Gemini already returns JSON as text; to be safe, let FastAPI check.
+#         import json
+#         data = json.loads(text)
+
+#         # Ensure all expected keys exist
+#         for k in FIELDS:
+#             data.setdefault(k, "")
+
+#         return JSONResponse(content=data)
+
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Gemini error: {e}")
 
 
 @cross_origin()
@@ -200,113 +316,68 @@ def upload_resume():
 
 
 
-@app.route('/upload-Resume', methods=['POST'])
-def upload_resume():
-    user_id = request.form.get('user_id')
-    resume = request.files.get('resume')
+# @app.route('/upload-Resume', methods=['POST'])
+# def upload_resume():
+#     user_id = request.form.get('user_id')
+#     resume = request.files.get('resume')
 
-    if not user_id or not resume:
-        return jsonify({'message': 'Missing user_id or resume'}), 400
+#     if not user_id or not resume:
+#         return jsonify({'message': 'Missing user_id or resume'}), 400
 
-    # Delete old resume if exists
-    old_user = db.users.find_one({"_id": user_id})
-    if old_user and "resume" in old_user:
-        try:
-            fs.delete(ObjectId(old_user["resume"]))
-        except:
-            pass
+#     # Delete old resume if exists
+#     old_user = db.users.find_one({"_id": user_id})
+#     if old_user and "resume" in old_user:
+#         try:
+#             fs.delete(ObjectId(old_user["resume"]))
+#         except:
+#             pass
 
-    # Save new resume to GridFS
-    file_id = fs.put(resume, filename=f"{user_id}_resume", content_type=resume.content_type)
+#     # Save new resume to GridFS
+#     file_id = fs.put(resume, filename=f"{user_id}_resume", content_type=resume.content_type)
 
-    # Read PDF text using PyMuPDF
-    resume.seek(0)
-    pdf_doc = fitz.open(stream=resume.read(), filetype="pdf")
-    text = ""
-    for page in pdf_doc:
-        text += page.get_text()
+#     # Read PDF text using PyMuPDF
+#     resume.seek(0)
+#     pdf_doc = fitz.open(stream=resume.read(), filetype="pdf")
+#     text = ""
+#     for page in pdf_doc:
+#         text += page.get_text()
 
-    # Extract fields using regex
-    extracted_data = {
-        "Gender": re.search(r"Gender\s*[:\-]?\s*(Male|Female|Other)", text, re.IGNORECASE),
-        "location": re.search(r"Location\s*[:\-]?\s*([A-Za-z ,]+)", text),
-        "Batch": re.search(r"Batch\s*[:\-]?\s*(20\d{2}-20\d{2})", text),
-        "preferredroll": re.search(r"Preferred\s*Role\s*[:\-]?\s*([^\n]+)", text, re.IGNORECASE),
-        "Higherstudies": re.search(r"Higher\s*Studies\s*[:\-]?\s*([^\n]+)", text, re.IGNORECASE),
-        "Dreamcompany": re.search(r"Dream\s*Company\s*[:\-]?\s*([^\n]+)", text, re.IGNORECASE),
-        "clubs": re.search(r"Clubs\s*[:\-]?\s*([^\n]+)", text, re.IGNORECASE),
-        "name": re.search(r"Name\s*[:\-]?\s*([A-Za-z ]+)", text),
-        "email": re.search(r"\b([\w\.-]+@[\w\.-]+)", text),
-        "phoneno": re.search(r"((?:\+91[\s\-]?)?[6-9]\d{9})", text),
-        "dob": re.search(r"DOB\s*[:\-]?\s*([^\n]+)", text),
-        "programbranch": re.search(r"Pursuing\s+([^\n]+)", text),
-        "college": re.search(r"at\s+(Kongu Engineering College)", text),
-        "cgpa": re.search(r"CGPA\s*[:\-]?\s*([\d\.]+)", text),
-        "hsc_percent": re.search(r"HSC\s*[:\-]?\s*(\d+)%", text),
-        "TechSkills": re.findall(r"\b(C\+\+|C|Java|Python|Dart|HTML|CSS|Spring Boot|MongoDB|Flutter|Oracle|JavaScript|Node\.js|React|Figma)\b", text),
-        "projects": re.search(r"(TNEA Counselling Helper.*?)Mobile App", text, re.DOTALL),
-        "certification": re.search(r"(Completed an Internship.*?)training", text, re.DOTALL),
-        "interests": re.search(r"(Backend Developer.*?)Spring Boot", text, re.DOTALL),
-        "domain": re.search(r"(Spring Boot, Flutter.*?)Figma", text, re.DOTALL),
-    }
-    print(extracted_data)
-    parsed_resume = {
-        "name": extracted_data["name"].group(1).strip() if extracted_data["name"] else "Nill",
-        # "email": extracted_data["email"].group(1).strip() if extracted_data["email"] else None,
-        "phoneno": extracted_data["phoneno"].group(1).strip() if extracted_data["phoneno"] else "Nill",
-        "dob": extracted_data["dob"].group(1).strip() if extracted_data["dob"] else "Nill",
-        "Gender": extracted_data["Gender"].group(1).strip() if extracted_data["Gender"] else "Nill",
-        "location": extracted_data["location"].group(1).strip() if extracted_data["location"] else "Nill",
-        "Batch": extracted_data["Batch"].group(1).strip() if extracted_data["Batch"] else None,
-        "preferredroll": extracted_data["preferredroll"].group(1).strip() if extracted_data["preferredroll"] else None,
-        "Higherstudies": extracted_data["Higherstudies"].group(1).strip() if extracted_data["Higherstudies"] else None,
-        "Dreamcompany": extracted_data["Dreamcompany"].group(1).strip() if extracted_data["Dreamcompany"] else None,
-        "clubs": extracted_data["clubs"].group(1).strip() if extracted_data["clubs"] else None,
-        "programbranch": extracted_data["programbranch"].group(1).strip() if extracted_data["programbranch"] else None,
-        "college": extracted_data["college"].group(1).strip() if extracted_data["college"] else None,
-        "cgpa": float(extracted_data["cgpa"].group(1)) if extracted_data["cgpa"] else None,
-        "hsc_percent": int(extracted_data["hsc_percent"].group(1)) if extracted_data["hsc_percent"] else None,
-        "TechSkills": list(set(extracted_data["TechSkills"])) if extracted_data["TechSkills"] else [],
-        "projects": extracted_data["projects"].group(1).strip() if extracted_data["projects"] else None,
-        "certificaion": extracted_data["certification"].group(1).strip() if extracted_data["certification"] else None,
-        "interests": extracted_data["interests"].group(1).strip() if extracted_data["interests"] else None,
-        "domain": extracted_data["domain"].group(1).strip() if extracted_data["domain"] else None,
-        "created_at": datetime.utcnow()
-    }
-    print(parsed_resume)
-    # Clean matched groups
-    for key, value in extracted_data.items():
-        if isinstance(value, re.Match):
-            extracted_data[key] = value.group(1)
+   
     
-    db.users.update_one(
-        {"_id": user_id},
-        {
-            "$set": {
-                "resume": str(file_id),
-                **extracted_data
-            }
-        },
-        upsert=True
-    )
-    print(str(file_id))
-    return jsonify({
-        "message": "Resume uploaded and content extracted successfully",
-        "file_id": str(file_id),
-    }), 200
+#     db.users.update_one(
+#         {"_id": user_id},
+#         {
+#             "$set": {
+#                 "resume": str(file_id),
+                
+#             }
+#         },
+#         upsert=True
+#     )
+#     print(str(file_id))
+#     return jsonify({
+#         "message": "Resume uploaded and content extracted successfully",
+#         "file_id": str(file_id),
+#     }), 200
 
 
 
-
-@app.route('/get-resume/<user_id>', methods=['GET'])
-def get_resume(user_id):
-    user = db.users.find_one({"_id": user_id})
+@app.route('/get-resume/<rollno>', methods=['GET'])
+def get_resume(rollno):
+    user = db.users.find_one({"_id": rollno})
     if not user or "resume" not in user:
         return jsonify({"message": "Resume not found"}), 404
 
-    file_id = ObjectId(user["resume"])
-    file = fs.get(file_id)
-    return send_file(io.BytesIO(file.read()), mimetype=file.content_type, as_attachment=True, download_name=file.filename)
+    try:
+        file_id = ObjectId(user["resume"])
+        file = fs.get(file_id)
+        return send_file(io.BytesIO(file.read()), 
+                         mimetype=file.content_type,
+                         download_name=file.filename)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 
 @app.route('/search_users')
 def search_users():
@@ -386,7 +457,22 @@ def get_events():
 
     except Exception as e:
         return jsonify({'message': 'Error fetching posts', 'error': str(e)}), 500
-    
+
+@app.route('/get_post/<post_id>', methods=['GET'])
+@cross_origin()
+def get_post(post_id):
+    print("post called ", post_id)
+    try:
+        post = db['posts'].find_one({"_id": ObjectId(post_id)})
+        if not post:
+            return jsonify({'message': 'Post not found'}), 404
+        post['_id'] = str(post['_id'])
+        if 'postImageId' in post:
+            post['postImageId'] = str(post['postImageId'])
+        return jsonify(post), 200
+    except Exception as e:
+        return jsonify({'message': 'Error fetching post', 'error': str(e)}), 500
+
     
 @app.route('/get_posts/<rollno>', methods=['GET'])
 @cross_origin()
@@ -966,18 +1052,42 @@ def create_group():
 
     return jsonify({"message": "Group created", "group_id": str(result.inserted_id)}), 201
 
+# @app.route('/get_groups/<id>', methods=['GET'])
+# def get_groups(id):
+#     groups_collection = db['group']
+#     print(id)
+    
+#     # Filter groups where 'members' contains the given id (as string)
+#     groups = groups_collection.find({
+#         "$or": [
+#             {"members": id},
+#             {"created_by": id}
+#             ]
+#         })
+
+#     group_list = []
+#     for group in groups:
+#         group_list.append({
+#             "id": str(group["_id"]),
+#             "name": group["title"],
+#             "type": group.get("type", "Group"),
+#             "description": group.get("description", "")
+#         })
+#     print("group_list", group_list)
+#     return jsonify(group_list), 200
+
 @app.route('/get_groups/<id>', methods=['GET'])
 def get_groups(id):
     groups_collection = db['group']
-    print(id)
-    
-    # Filter groups where 'members' contains the given id (as string)
+    communities_collection = db['community']
+
+    # --- 1. Fetch Groups ---
     groups = groups_collection.find({
         "$or": [
             {"members": id},
             {"created_by": id}
-            ]
-        })
+        ]
+    })
 
     group_list = []
     for group in groups:
@@ -988,7 +1098,28 @@ def get_groups(id):
             "description": group.get("description", "")
         })
 
-    return jsonify(group_list), 200
+    # --- 2. Fetch Communities ---
+    communities = communities_collection.find({
+        "$or": [
+            {"groups": {"$in": [g["name"] for g in group_list]}},  # user is part of a group inside the community
+            {"created_by": id}
+        ]
+    })
+
+    community_list = []
+    for comm in communities:
+        community_list.append({
+            "id": str(comm["_id"]),
+            "name": comm["name"],
+            "type": comm.get("type", "Community"),
+            "description": comm.get("description", "")
+        })
+
+    return jsonify({
+        "groups": group_list,
+        "communities": community_list
+    }), 200
+
 
 @app.route('/get_group_messages/<group_id>', methods=['GET'])
 def get_group_messages(group_id):
@@ -1083,8 +1214,86 @@ def get_details_leaderboard():
     return jsonify(leaderboard),200
 
 
+@app.route('/getSavedPosts/<user_id>', methods=['GET'])
+def get_saved_posts(user_id):
+    collection = db['users']
+    user = collection.find_one({"_id": user_id}, {"saved_posts": 1})
+    if not user:
+        return jsonify([]), 200
+    saved_posts_ids = user['saved_posts']
+    print("saved posts ids", saved_posts_ids)
+    return jsonify(saved_posts_ids), 200
+
+
+@app.route('/saveposts/<user_id>/<post_id>', methods=['GET'])
+def save_posts(user_id, post_id):
+    collection = db['users']
+    user = collection.find_one({"_id": user_id})
+    
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    # If 'saved_posts' does not exist, create it with post_id
+    if 'saved_posts' not in user:
+        collection.update_one(
+            {"_id": user_id},
+            {"$set": {"saved_posts": [post_id]}}
+        )
+        return jsonify({"message": "Post saved successfully"}), 200
+
+    # If post_id already in saved_posts -> remove it
+    if post_id in user['saved_posts']:
+        collection.update_one(
+            {"_id": user_id},
+            {"$pull": {"saved_posts": post_id}}
+        )
+        return jsonify({"message": "Post removed from saved posts"}), 200
+
+    # Else -> add post_id to saved_posts
+    collection.update_one(
+        {"_id": user_id},
+        {"$addToSet": {"saved_posts": post_id}}
+    )
+    return jsonify({"message": "Post saved successfully"}), 200
+
+from datetime import datetime, timezone
+from bson import ObjectId
+
+@app.route('/create_community', methods=['POST'])
+def create_community():
+    try:
+        communities_collection = db['community']  # ✅ store inside "community" collection
+        data = request.json
+
+        if not data.get("name") or not data.get("groups"):
+            return jsonify({"error": "Community name and groups required"}), 400
+
+        community = {
+            "title": data["name"],
+            "groups": data["groups"],
+            "created_by": data.get("created_by"),
+            "type": "Community",
+            "created_at": datetime.now(timezone.utc).isoformat()  # ✅ timezone-aware
+        }
+
+        result = communities_collection.insert_one(community)
+        community["_id"] = str(result.inserted_id)  # ✅ convert ObjectId to string
+
+        return jsonify({
+            "message": "Community created successfully",
+            "community": community
+        }), 201
+
+    except Exception as e:
+        print("Error creating community:", str(e))
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
-
-
