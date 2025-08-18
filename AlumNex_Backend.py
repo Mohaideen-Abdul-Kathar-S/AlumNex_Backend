@@ -1112,7 +1112,6 @@ def create_group():
 #         })
 #     print("group_list", group_list)
 #     return jsonify(group_list), 200
-
 @app.route('/get_groups/<id>', methods=['GET'])
 def get_groups(id):
     groups_collection = db['group']
@@ -1127,10 +1126,14 @@ def get_groups(id):
     })
 
     group_list = []
+    group_ids = []  # keep track of group IDs
+
     for group in groups:
+        group_id = str(group["_id"])
+        group_ids.append(group_id)
         group_list.append({
-            "id": str(group["_id"]),
-            "name": group["title"],
+            "id": group_id,
+            "name": group["title"],  # safe for Flutter
             "type": group.get("type", "Group"),
             "description": group.get("description", "")
         })
@@ -1138,7 +1141,7 @@ def get_groups(id):
     # --- 2. Fetch Communities ---
     communities = communities_collection.find({
         "$or": [
-            {"groups": {"$in": [g["name"] for g in group_list]}},  # user is part of a group inside the community
+            {"groups": {"$in": group_ids}},  # FIXED: check against group IDs
             {"created_by": id}
         ]
     })
@@ -1147,7 +1150,7 @@ def get_groups(id):
     for comm in communities:
         community_list.append({
             "id": str(comm["_id"]),
-            "name": comm["name"],
+            "name": comm.get("title") or comm.get("name"),  # in your DB it's "title"
             "type": comm.get("type", "Community"),
             "description": comm.get("description", "")
         })
