@@ -1,145 +1,3 @@
-# import os
-# from typing import Dict, Any
-
-# from fastapi import FastAPI, File, UploadFile, HTTPException
-# from fastapi.middleware.cors import CORSMiddleware
-# from fastapi.responses import JSONResponse
-
-# import google.generativeai as genai
-# from PyPDF2 import PdfReader
-# from io import BytesIO
-
-# # ---------------------------
-# # 🔑 Configure Gemini
-# # ---------------------------
-# API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAG9StpoICv_50dixmD8c9gSc_M_bEwGg0")
-# if not API_KEY:
-#     raise RuntimeError("Set GEMINI_API_KEY environment variable before starting the server.")
-# genai.configure(api_key=API_KEY)
-
-# model = genai.GenerativeModel(
-#     "gemini-1.5-flash",
-#     generation_config={"response_mime_type": "application/json"}
-# )
-
-# # ---------------------------
-# # 🚀 FastAPI app + CORS
-# # ---------------------------
-# app = FastAPI(title="Resume Parser via Gemini", version="1.0")
-
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],  # adjust for your domain in production
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-
-# # ---------------------------
-# # 🧠 Helper: extract text from PDF
-# # ---------------------------
-# def extract_text_from_pdf(file_bytes: bytes) -> str:
-#     try:
-#         reader = PdfReader(BytesIO(file_bytes))
-#         text_parts = []
-#         for page in reader.pages:
-#             # NOTE: scanned PDFs may return None; OCR can be added later
-#             t = page.extract_text() or ""
-#             text_parts.append(t)
-#         text = "\n".join(text_parts).strip()
-#         return text
-#     except Exception as e:
-#         raise HTTPException(status_code=400, detail=f"Failed to read PDF: {e}")
-
-# # ---------------------------
-# # 🎯 Fields we want (customize freely)
-# # ---------------------------
-# FIELDS = [
-#     "Full Name",
-#     "Email",
-#     "Skills",
-#     "Currently Studying",
-#     "Gender",
-#     "Phone Number",
-#     "Location",
-#     "Program Branch",
-#     "Batch",
-#     "Preferred Role",
-#     "Higher Studies",
-#     "Dream Company",
-#     "Technical Skills",
-#     "Certification",
-#     "Projects",
-#     "Clubs",
-#     "Domain",
-#     "Current Job",
-#     "Company",
-#     "Experience Year",
-#     "Working In"
-# ]
-
-# # ---------------------------
-# # 🧾 Endpoint: POST /parse
-# # ---------------------------
-# @app.post("/parse")
-# async def parse_resume(file: UploadFile = File(...)) -> Dict[str, Any]:
-#     if not file.filename.lower().endswith(".pdf"):
-#         raise HTTPException(status_code=400, detail="Please upload a PDF file.")
-
-#     file_bytes = await file.read()
-#     resume_text = extract_text_from_pdf(file_bytes)
-#     if not resume_text:
-#         raise HTTPException(
-#             status_code=422,
-#             detail="No extractable text found in the PDF. If it's a scanned image, add OCR."
-#         )
-
-#     # Ask Gemini to return STRICT JSON with the fields above
-#     schema_example = {k: "" for k in FIELDS}
-#     prompt = f"""
-# You are a resume parser. Read the resume text and return a strict JSON object with EXACTLY these keys:
-
-# {FIELDS}
-
-# Rules:
-# - If a field is unknown or not found, use an empty string "".
-# - For "Skills" or "Technical Skills", return a comma-separated string (not an array).
-# - For "Projects" and "Clubs", return a semicolon-separated string if multiple.
-# - Do NOT include any keys other than the ones listed.
-# - Do NOT add explanations.
-
-# Return JSON ONLY.
-
-# Resume Text:
-# {resume_text}
-# """
-
-#     try:
-#         resp = model.generate_content(prompt)
-#         # resp.text should be pure JSON because of response_mime_type
-#         # but we still guard against empty/invalid response
-#         text = (resp.text or "").strip()
-#         if not text:
-#             raise ValueError("Empty response from Gemini.")
-#         # FastAPI will validate/pretty-print JSON automatically if we load it
-#         # But Gemini already returns JSON as text; to be safe, let FastAPI check.
-#         import json
-#         data = json.loads(text)
-
-#         # Ensure all expected keys exist
-#         for k in FIELDS:
-#             data.setdefault(k, "")
-
-#         return JSONResponse(content=data)
-
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Gemini error: {e}")
-
-# @app.get("/health")
-# def health():
-#     return {"status": "ok"}
-
-
 
 
 
@@ -159,6 +17,15 @@ from io import BytesIO
 from pymongo import MongoClient
 import gridfs
 from bson import ObjectId
+
+import pytesseract
+
+# On Render (Linux), tesseract is in PATH after apt install, so no need for manual path
+# On Windows (local), keep your path
+import platform
+if platform.system() == "Windows":
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 
 # ---------------------------
 # 🔑 Configure Gemini
@@ -305,6 +172,112 @@ def get_resume(user_id: str):
         media_type=file.content_type,
         headers={"Content-Disposition": f"attachment; filename={file.filename}"}
     )
+
+import io
+from PyPDF2 import PdfReader
+from pdf2image import convert_from_bytes
+import pytesseract
+from PIL import Image
+
+def extract_text_from_IDcard_file(file_bytes: bytes) -> str:
+    text = ""
+
+    # ---------- Try as PDF ----------
+    try:
+        pdf = PdfReader(io.BytesIO(file_bytes))
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+
+        if text.strip():
+            return text.strip()
+
+        # ---------- Fall back to OCR on PDF ----------
+        images = convert_from_bytes(file_bytes)  # Convert PDF pages to images
+        ocr_text = ""
+        for img in images:
+            ocr_text += pytesseract.image_to_string(img) + "\n"
+
+        return ocr_text.strip()
+
+    except Exception as pdf_error:
+        print(f"⚠️ Not a valid PDF, trying image OCR: {pdf_error}")
+
+    # ---------- Try as Image ----------
+    try:
+        image = Image.open(io.BytesIO(file_bytes))
+        ocr_text = pytesseract.image_to_string(image)
+        return ocr_text.strip()
+    except Exception as img_error:
+        print(f"⚠️ Image extraction failed: {img_error}")
+        return ""
+import traceback
+from fastapi import UploadFile, File, HTTPException
+
+@app.post("/parse_id_card")
+async def parse_id_card(file: UploadFile = File(...)):
+    try:
+        file_bytes = await file.read()
+
+        extracted_text = extract_text_from_IDcard_file(file_bytes)
+        if not extracted_text:
+            raise HTTPException(status_code=400, detail="No text could be extracted from the file.")
+
+        prompt = f"""
+        You are a smart ID card parser. 
+        From the given student ID card text, extract the following details in JSON:
+        - College Name
+        - Student Name
+        - Student Roll No
+        - Student Batch
+        - Date of Birth (optional, if available)
+
+        If any field is missing, return null for that field.
+
+        ID Card text:
+        {extracted_text}
+        """
+
+        response = model.generate_content(prompt)
+
+        structured_data = None
+        if hasattr(response, "output_text") and response.output_text:
+            structured_data = response.output_text.strip()
+        elif hasattr(response, "text") and response.text:
+            structured_data = response.text.strip()
+        elif hasattr(response, "candidates") and response.candidates:
+            structured_data = (
+                response.candidates[0].content.parts[0].text.strip()
+            )
+        else:
+            raise ValueError("Gemini returned an unexpected response format")
+
+        try:
+            structured_data_json = json.loads(structured_data)
+        except Exception:
+            structured_data_json = {"raw_text": structured_data}
+
+        print(f"✅ Structured Data: {structured_data_json}")
+        return {"status": "success", "data": structured_data_json}
+
+    except Exception as e:
+        print("❌ Backend Error:", str(e))
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error parsing ID card: {str(e)}")
+
+
+@app.post("/parse_id_card")
+async def parse_id_card(file: UploadFile = File(...)):
+    ...
+    structured_data = json.loads(response.text.strip())
+    
+    # Save to MongoDB
+    result = db.idcards.insert_one(structured_data)
+    structured_data["_id"] = str(result.inserted_id)
+
+    return {"status": "success", "data": structured_data}
+
 
 # .venv\Scripts\Activate.ps1
 # uvicorn app:app --reload --host 0.0.0.0 --port 8000

@@ -28,7 +28,7 @@ app = Flask(__name__)
 CORS(app)
 try:
     # Get from environment variable
-    MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://mohaideenabdulkathars23csd:DzSbHU79AfKPkOk6@cluster0.8v7rv29.mongodb.net/alumnex?retryWrites=true&w=majority&appName=Cluster0")
+    MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
     
     client = MongoClient(MONGO_URI)
     db = client["alumnex"]   # your DB name
@@ -519,7 +519,7 @@ def respond_request():
             {"_id": res["from"]},
             {"$push": {"mentoring": res["to"]}}
             )
-    else:
+    elif(res["type"]=="mentorship_request_by_student"):
         if(data["response"]=='Accepted'):
             
             userscollection.update_one(
@@ -529,6 +529,16 @@ def respond_request():
             userscollection.update_one(
             {"_id": res["to"]},
             {"$push": {"mentoring": res["from"]}}
+            )
+    else:
+        if(data["response"]=='Accepted'):
+            userscollection.update_one(
+                {"_id":res["from"]},
+                {"$addToSet":{"connections":res["to"]}}
+            )
+            userscollection.update_one(
+                {"_id":res["to"]},
+                {"$addToSet":{"connections":res["from"]}}
             )
         
 
@@ -906,29 +916,7 @@ def create_group():
 
     return jsonify({"message": "Group created", "group_id": str(result.inserted_id)}), 201
 
-# @app.route('/get_groups/<id>', methods=['GET'])
-# def get_groups(id):
-#     groups_collection = db['group']
-#     print(id)
-    
-#     # Filter groups where 'members' contains the given id (as string)
-#     groups = groups_collection.find({
-#         "$or": [
-#             {"members": id},
-#             {"created_by": id}
-#             ]
-#         })
 
-#     group_list = []
-#     for group in groups:
-#         group_list.append({
-#             "id": str(group["_id"]),
-#             "name": group["title"],
-#             "type": group.get("type", "Group"),
-#             "description": group.get("description", "")
-#         })
-#     print("group_list", group_list)
-#     return jsonify(group_list), 200
 @app.route('/get_groups/<id>', methods=['GET'])
 def get_groups(id):
     groups_collection = db['group']
@@ -1181,9 +1169,11 @@ SIGNATURE_X, SIGNATURE_Y = 340, 450
 def make_certificate_pdf(
     template_bytes: bytes,
     student_name_or_id: str,
-    signature_bytes: bytes | None = None,
-    title: str = "Event Title",
-    date: str = "12-06-2006"
+    
+    title: str,
+    date: str,
+    signature_bytes: bytes | None = None
+
 ) -> bytes:
     """
     Draws name, title, date, and optional signature onto the first page
@@ -1331,11 +1321,12 @@ def distribute_certificates():
     for sid in members:
         print(sid)
         # If you have a 'students' collection with names, you could look up here.
-        # stu = db.students.find_one({"student_id": sid})
-        # name_or_id = stu["name"] if stu and stu.get("name") else sid
-        name_or_id = sid  # fallback to student ID as requested
+        stu = db.users.find_one({"_id": sid})
+        name_or_id = stu.get("fields", {}).get("Full Name", sid) if stu else sid
 
-        pdf_bytes = make_certificate_pdf(template_bytes, name_or_id, signature_bytes)
+        # name_or_id = sid  # fallback to student ID as requested
+
+        pdf_bytes = make_certificate_pdf(template_bytes, name_or_id,meeting['title'], meeting['date'], signature_bytes)
         grid_id = put_pdf_to_gridfs(
             pdf_bytes,
             filename=f"{meet_id}_{sid}.pdf",
@@ -2043,7 +2034,17 @@ def get_file(file_id):
 def health():
     return ok({"status": "ok", "time": datetime.utcnow().isoformat()})
 
+@app.route("/get_meeting_name", methods=["GET"])
+def get_meeting_name():
+    meet_id = request.args.get("meet_id")
+    if not meet_id:
+        return jsonify({"error": "meet_id is required"}), 400
 
+    meeting = db.meetings.find_one({"_id": ObjectId(meet_id)}, {"title": 1, "_id": 0})
+    if meeting:
+        return jsonify({"title": meeting.get("title", "")})
+    else:
+        return jsonify({"error": "Meeting not found"}), 404
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

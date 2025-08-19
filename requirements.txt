@@ -17,3 +17,14 @@ dnspython
 
 # PDF handling
 pymupdf
+
+
+pdf2image
+PyPDF2
+pytesseract
+pillow
+
+google-generativeai
+
+
+
