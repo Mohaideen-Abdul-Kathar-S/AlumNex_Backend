@@ -3,6 +3,7 @@ from csv import reader
 from datetime import datetime
 from tkinter import Image
 from bson import ObjectId
+from werkzeug.utils import secure_filename
 from flask import Flask, Response,jsonify,request, send_file
 from flask_cors import CORS, cross_origin
 from pymongo import MongoClient
@@ -20,18 +21,8 @@ import gridfs, io, datetime
 import fitz  # PyMuPDF
 
 
-# import os
-# from typing import Dict, Any
-
-# from fastapi import FastAPI, File, UploadFile, HTTPException
-# from fastapi.middleware.cors import CORSMiddleware
-# from fastapi.responses import JSONResponse
-
-# import google.generativeai as genai
-# from PyPDF2 import PdfReader
-# from io import BytesIO
-
-# mongodb+srv://mohaideenabdulkathars23csd:<db_password>@cluster0.8v7rv29.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+# mongodb+srv://mohaideenabdulkathars23csd:DzSbHU79AfKPkOk6@cluster0.8v7rv29.mongodb.net/alumnex?retryWrites=true&w=majority&appName=Cluster0
+# mongodb://localhost:27017/
 
 app = Flask(__name__)
 CORS(app)
@@ -55,113 +46,6 @@ genai.configure(api_key="AIzaSyCbVGKRCYZY8Z5dy2jAMQuxdUQ4Je4NxxU")
 # Initialize the model globally (reuse for efficiency)
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],  # adjust for your domain in production
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-
-# # ---------------------------
-# # 🧠 Helper: extract text from PDF
-# # ---------------------------
-# def extract_text_from_pdf(file_bytes: bytes) -> str:
-#     try:
-#         reader = PdfReader(BytesIO(file_bytes))
-#         text_parts = []
-#         for page in reader.pages:
-#             # NOTE: scanned PDFs may return None; OCR can be added later
-#             t = page.extract_text() or ""
-#             text_parts.append(t)
-#         text = "\n".join(text_parts).strip()
-#         return text
-#     except Exception as e:
-#         raise HTTPException(status_code=400, detail=f"Failed to read PDF: {e}")
-
-# # ---------------------------
-# # 🎯 Fields we want (customize freely)
-# # ---------------------------
-# FIELDS = [
-#     "Full Name",
-#     "Email",
-#     "Skills",
-#     "Currently Studying",
-#     "Gender",
-#     "Phone Number",
-#     "Location",
-#     "Program Branch",
-#     "Batch",
-#     "Preferred Role",
-#     "Higher Studies",
-#     "Dream Company",
-#     "Technical Skills",
-#     "Certification",
-#     "Projects",
-#     "Clubs",
-#     "Domain",
-#     "Current Job",
-#     "Company",
-#     "Experience Year",
-#     "Working In"
-# ]
-
-# # ---------------------------
-# # 🧾 Endpoint: POST /parse
-# # ---------------------------
-# @app.post("/parse")
-# async def parse_resume(file: UploadFile = File(...)) -> Dict[str, Any]:
-#     if not file.filename.lower().endswith(".pdf"):
-#         raise HTTPException(status_code=400, detail="Please upload a PDF file.")
-
-#     file_bytes = await file.read()
-#     resume_text = extract_text_from_pdf(file_bytes)
-#     if not resume_text:
-#         raise HTTPException(
-#             status_code=422,
-#             detail="No extractable text found in the PDF. If it's a scanned image, add OCR."
-#         )
-
-#     # Ask Gemini to return STRICT JSON with the fields above
-#     schema_example = {k: "" for k in FIELDS}
-#     prompt = f"""
-# You are a resume parser. Read the resume text and return a strict JSON object with EXACTLY these keys:
-
-# {FIELDS}
-
-# Rules:
-# - If a field is unknown or not found, use an empty string "".
-# - For "Skills" or "Technical Skills", return a comma-separated string (not an array).
-# - For "Projects" and "Clubs", return a semicolon-separated string if multiple.
-# - Do NOT include any keys other than the ones listed.
-# - Do NOT add explanations.
-
-# Return JSON ONLY.
-
-# Resume Text:
-# {resume_text}
-# """
-
-#     try:
-#         resp = model.generate_content(prompt)
-#         # resp.text should be pure JSON because of response_mime_type
-#         # but we still guard against empty/invalid response
-#         text = (resp.text or "").strip()
-#         if not text:
-#             raise ValueError("Empty response from Gemini.")
-#         # FastAPI will validate/pretty-print JSON automatically if we load it
-#         # But Gemini already returns JSON as text; to be safe, let FastAPI check.
-#         import json
-#         data = json.loads(text)
-
-#         # Ensure all expected keys exist
-#         for k in FIELDS:
-#             data.setdefault(k, "")
-
-#         return JSONResponse(content=data)
-
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Gemini error: {e}")
 
 @app.route('/aura_assistant', methods=['POST'])
 @cross_origin()
@@ -327,75 +211,7 @@ def upload_profile():
 
 
 
-"""@app.route('/upload-Resume', methods=['POST'])
-def upload_resume():
-    user_id = request.form.get('user_id')
-    resume = request.files.get('resume')
 
-    if not user_id or not resume:
-        return jsonify({'message': 'Missing user_id or resume'}), 400
-
-    # Delete old resume if exists
-    old_user = db.users.find_one({"_id": user_id})
-    if old_user and "resume" in old_user:
-        try:
-            fs.delete(ObjectId(old_user["resume"]))
-        except:
-            pass
-
-    # Save new resume
-    file_id = fs.put(resume, filename=f"{user_id}_resume", content_type=resume.content_type)
-    db.users.update_one({"_id": user_id}, {"$set": {"resume": str(file_id)}}, upsert=True)
-
-    return jsonify({"message": "Resume uploaded successfully", "file_id": str(file_id)}), 200"""
-    
-
-
-
-
-# @app.route('/upload-Resume', methods=['POST'])
-# def upload_resume():
-#     user_id = request.form.get('user_id')
-#     resume = request.files.get('resume')
-
-#     if not user_id or not resume:
-#         return jsonify({'message': 'Missing user_id or resume'}), 400
-
-#     # Delete old resume if exists
-#     old_user = db.users.find_one({"_id": user_id})
-#     if old_user and "resume" in old_user:
-#         try:
-#             fs.delete(ObjectId(old_user["resume"]))
-#         except:
-#             pass
-
-#     # Save new resume to GridFS
-#     file_id = fs.put(resume, filename=f"{user_id}_resume", content_type=resume.content_type)
-
-#     # Read PDF text using PyMuPDF
-#     resume.seek(0)
-#     pdf_doc = fitz.open(stream=resume.read(), filetype="pdf")
-#     text = ""
-#     for page in pdf_doc:
-#         text += page.get_text()
-
-   
-    
-#     db.users.update_one(
-#         {"_id": user_id},
-#         {
-#             "$set": {
-#                 "resume": str(file_id),
-                
-#             }
-#         },
-#         upsert=True
-#     )
-#     print(str(file_id))
-#     return jsonify({
-#         "message": "Resume uploaded and content extracted successfully",
-#         "file_id": str(file_id),
-#     }), 200
 
 
 
@@ -846,6 +662,7 @@ def create_post(rollno):
         
         post_data = {
             'postId':data['postId'],
+            'rollno': data['rollno'],  # User's roll number
             'type': data['type'],  # 'Chat' or 'Poll'
             'title': data['title'],
             'question': data['question'],
@@ -1328,6 +1145,12 @@ def create_community():
         print("Error creating community:", str(e))
         return jsonify({"error": str(e)}), 500
 
+
+
+
+
+
+
 def get_current_template_bytes():
     settings = db["settings"] 
     cfg = settings.find_one({"key": "certificate_template"})
@@ -1348,47 +1171,82 @@ def get_host_signature_bytes(host_id: str):
 def put_pdf_to_gridfs(pdf_bytes: bytes, filename: str, metadata: dict):
     return fs.put(pdf_bytes, filename=filename, **({"metadata": metadata} if metadata else {}))
 
-def make_certificate_pdf(template_bytes: bytes, student_name_or_id: str, signature_bytes: bytes | None):
+
+NAME_X, NAME_Y = 260, 302
+TITLE_X, TITLE_Y = 260, 360
+DATE_X, DATE_Y = 180, 472
+SIGNATURE_X, SIGNATURE_Y = 340, 450
+
+
+def make_certificate_pdf(
+    template_bytes: bytes,
+    student_name_or_id: str,
+    signature_bytes: bytes | None = None,
+    title: str = "Event Title",
+    date: str = "12-06-2006"
+) -> bytes:
     """
-    Draws centered name/ID and optional signature onto page 1 of the template.
+    Draws name, title, date, and optional signature onto the first page
+    of the PDF template.
     """
+
+    # Open template PDF
     doc = fitz.open(stream=template_bytes, filetype="pdf")
-    page = doc[0]
+    page = doc[0]  # first page
 
-    PAGE_W, PAGE_H = page.rect.width, page.rect.height
-    name_fontsize = 30  
+    # Draw text
+    name_fontsize = 30
+    title_fontsize = 20
+    date_fontsize = 16
 
-    # --- Name box (taller, under "presented to") ---
-    name_box = fitz.Rect(PAGE_W * 0.15, PAGE_H * 0.36, PAGE_W * 0.85, PAGE_H * 0.48)
-
-    # DEBUG: draw rectangle outline (red) to see position
-    page.draw_rect(name_box, color=(1, 0, 0), width=1)
-
-    text = f"{student_name_or_id}"
-
-    # Use guaranteed font + black color
-    rc = page.insert_textbox(
-        name_box,
-        text,
+    # Name
+    page.insert_text(
+        (NAME_X, NAME_Y),
+        student_name_or_id,
+        fontname="helv",
         fontsize=name_fontsize,
-        fontname="Helvetica",
-        align=1,           # center
-        color=(0, 0, 0)    # black
+        fontfile=None,
+        color=(0, 0, 0),
     )
 
-    if rc == 0:
-        print("⚠️ Text did not fit in the box, try larger height or smaller fontsize")
+    # Title
+    page.insert_text(
+        (TITLE_X, TITLE_Y),
+        title,
+        fontname="helv",
+        fontsize=title_fontsize,
+        color=(0, 0, 0),
+    )
 
-    # --- Signature (bottom-right) ---
+    # Date
+    page.insert_text(
+        (DATE_X, DATE_Y),
+        date,
+        fontname="helv",
+        fontsize=date_fontsize,
+        color=(0, 0, 0),
+    )
+
+    # Signature (optional)
     if signature_bytes:
-        sig_rect = fitz.Rect(PAGE_W * 0.65, PAGE_H * 0.80, PAGE_W * 0.90, PAGE_H * 0.90)
+        # Calculate a rectangle for signature
+        sig_width = 150
+        sig_height = 50
+        sig_rect = fitz.Rect(
+            SIGNATURE_X,
+            SIGNATURE_Y,
+            SIGNATURE_X + sig_width,
+            SIGNATURE_Y + sig_height,
+        )
         page.insert_image(sig_rect, stream=signature_bytes, keep_proportion=True)
 
+    # Save to bytes
     out = io.BytesIO()
     doc.save(out)
     doc.close()
+    out.seek(0)
     return out.getvalue()
-
+    
 
 @app.post("/template")
 def upload_template():
@@ -1529,6 +1387,661 @@ def get_certificate_file(meet_id, student_id):
         as_attachment=True,
         download_name=gf.filename or f"{student_id}_{meet_id}.pdf"
     )
+
+
+@app.route('/get_post_by_userid/<user_id>', methods=['GET'])
+@cross_origin()
+def get_post_by_userid(user_id):
+    try:
+        # Fetch all posts for this user_id
+        posts = list(db['posts'].find({"rollno": user_id}))
+
+        if not posts:
+            return jsonify({'message': 'No posts found'}), 404
+
+        # Convert ObjectId to string
+        for post in posts:
+            post['_id'] = str(post['_id'])
+
+        return jsonify(posts), 200
+
+    except Exception as e:
+        return jsonify({'message': 'Error fetching posts', 'error': str(e)}), 500
+
+
+@app.route('/delete_post_by_userid_postid/<user_id>/<post_id>', methods=['DELETE'])
+@cross_origin()
+def delete_post_by_userid_postid(user_id, post_id):
+    try:
+        # Try deleting the post where rollno = user_id and _id = post_id
+        result = db['posts'].delete_one({
+            "rollno": user_id,
+            "_id": ObjectId(post_id)
+        })
+
+        if result.deleted_count == 0:
+            return jsonify({'message': 'Post not found'}), 404
+
+        return jsonify({'message': 'Post deleted successfully'}), 200
+
+    except Exception as e:
+        return jsonify({'message': 'Error deleting post', 'error': str(e)}), 500
+
+
+
+@app.route('/delete_user_field/<user_id>/<field_key>', methods=['DELETE'])
+@cross_origin()
+def delete_user_field(user_id, field_key):
+    try:
+        result = db['users'].update_one(
+            {"_id": user_id},            # match by _id instead of rollno
+            {"$unset": {field_key: 1}}   # remove key30, key31...
+        )
+
+        if result.modified_count == 0:
+            return jsonify({"message": "Field not found or already deleted"}), 404
+
+        return jsonify({"message": f"Field '{field_key}' deleted successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"message": "Error deleting field", "error": str(e)}), 500
+
+
+@app.route('/update_post/<post_id>', methods=['PUT'])
+@cross_origin()
+def update_post(post_id):
+    try:
+        post_data = request.form.get('post_data')
+        image = request.files.get('post_image')
+
+        if not post_data:
+            return jsonify({'message': 'Missing post_data'}), 400
+
+        import json
+        post_data = json.loads(post_data)
+
+        posts_collection = db['posts']
+
+        # Build update fields
+        update_fields = {**post_data}
+
+        if image:
+            # Save new image to GridFS
+            filename = f"post_image_{post_id}"
+            content_type = image.content_type
+            image_id = fs.put(
+                image,
+                filename=filename,
+                metadata={'post_id': post_id, 'contentType': content_type}
+            )
+            update_fields['postImageId'] = str(image_id)
+
+        # Update the post
+        result = posts_collection.update_one(
+            {'_id': ObjectId(post_id)},
+            {'$set': update_fields}
+        )
+
+        if result.matched_count == 0:
+            return jsonify({'message': 'Post not found'}), 404
+
+        return jsonify({'message': 'Post updated successfully'}), 200
+
+    except Exception as e:
+        return jsonify({'message': 'Error updating post', 'error': str(e)}), 500
+
+
+@app.route('/remove_member/<meeting_id>/<member_id>', methods=['DELETE'])
+@cross_origin()
+def remove_member(meeting_id, member_id):
+    try:
+        result = db['meetings'].update_one(
+            {"_id": ObjectId(meeting_id)},
+            {"$pull": {"members": member_id}}
+        )
+
+        if result.modified_count == 0:
+            return jsonify({"message": "Member not found or already removed"}), 404
+
+        return jsonify({"message": f"Member {member_id} removed successfully"}), 200
+    except Exception as e:
+        return jsonify({"message": "Error removing member", "error": str(e)}), 500
+
+
+@app.route('/delete_meeting/<meeting_id>', methods=['DELETE'])
+@cross_origin()
+def delete_meeting(meeting_id):
+    try:
+        result = db['meetings'].delete_one({"_id": ObjectId(meeting_id)})
+
+        if result.deleted_count == 0:
+            return jsonify({"message": "Meeting not found"}), 404
+
+        return jsonify({"message": "Meeting deleted successfully"}), 200
+    except Exception as e:
+        return jsonify({"message": "Error deleting meeting", "error": str(e)}), 500
+
+# def serialize_doc(doc):
+#     doc["_id"] = str(doc["_id"])
+#     if "certificate_file_id" in doc:
+#         doc["certificate_file_id"] = str(doc["certificate_file_id"])
+#     if "meet_id" in doc:
+#         doc["meet_id"] = str(doc["meet_id"])
+#     if "updated_at" in doc and isinstance(doc["updated_at"], datetime):
+#         doc["updated_at"] = doc["updated_at"].isoformat()
+#     return doc
+
+def serialize_doc(doc):
+    if "_id" in doc:
+        doc["_id"] = str(doc["_id"])
+    if "certificate_file_id" in doc and doc["certificate_file_id"] is not None:
+        doc["certificate_file_id"] = str(doc["certificate_file_id"])
+    if "file_id" in doc and doc["file_id"] is not None:
+        doc["file_id"] = str(doc["file_id"])
+    if "meet_id" in doc and doc["meet_id"] is not None:
+        doc["meet_id"] = str(doc["meet_id"])
+    if "updated_at" in doc and isinstance(doc["updated_at"], datetime):
+        doc["updated_at"] = doc["updated_at"].isoformat()
+    if "submitted_at" in doc and isinstance(doc["submitted_at"], datetime):
+        doc["submitted_at"] = doc["submitted_at"].isoformat()
+    return doc
+
+
+
+@app.route('/get_certificates/<rollno>', methods=['GET'])
+@cross_origin()
+def get_certificates(rollno):
+    print("Fetching certificates for rollno:", rollno)
+    try:
+        certificates_collection = db['certificates']
+        certificates = list(certificates_collection.find({"student_id": rollno}))
+
+        print("Raw certificates:", certificates)  # debug log
+
+        certificates = [serialize_doc(cert) for cert in certificates]
+
+        return jsonify(certificates), 200
+    except Exception as e:
+        import traceback
+        print("Error fetching certificates:", str(e))
+        traceback.print_exc()
+        return jsonify({"message": "Error fetching certificates", "error": str(e)}), 500
+
+
+
+
+
+tasks = db["tasks"]
+submissions = db["submissions"]
+
+
+# ---- Utilities ----
+def oid(x):
+    try:
+        return ObjectId(x)
+    except Exception:
+        return None
+
+def iso(dt: datetime | None):
+    return dt.isoformat() if isinstance(dt, datetime) else dt
+
+def sdoc(doc: dict):
+    """Serialize mongo doc -> JSON-safe dict."""
+    out = {}
+    for k, v in doc.items():
+        if isinstance(v, ObjectId):
+            out[k] = str(v)
+        elif isinstance(v, datetime):
+            out[k] = v.isoformat()
+        else:
+            out[k] = v
+    return out
+
+def ok(data, code=200):
+    return jsonify(data), code
+
+def bad(msg, code=400):
+    return jsonify({"message": msg}), code
+
+# Recommended indexes (run once)
+def ensure_indexes():
+    tasks.create_index([("mentor_id", ASCENDING)])
+    tasks.create_index([("student_id", ASCENDING)])
+    tasks.create_index([("deadline", ASCENDING)])
+    submissions.create_index([("task_id", ASCENDING)])
+    submissions.create_index([("student_id", ASCENDING)])
+ensure_indexes()
+
+# ======================================================================
+#                              TASKS
+# ======================================================================
+@app.route("/create_task", methods=["POST"])
+@cross_origin()
+def create_task():
+    """
+    Body (JSON):
+    {
+      "mentor_id": "23CDR110",
+      "mentor_name": "Alumni Name",       (optional)
+      "student_id": "101",                (optional if multi-assign)
+      "student_ids": ["101","102"],       (optional for assign many)
+      "title": "Assignment",
+      "description": "Do this...",
+      "deadline": "2025-08-25",           (ISO or yyyy-mm-dd)
+      "attachments": ["link1", "link2"],  (optional references)
+      "works": [                          (MANDATORY, at least 1)
+        {"question": "Q1 text here"},
+        {"question": "Q2 text here"},
+        ...
+      ]
+    }
+    Creates 1 task per student_id.
+    """
+    try:
+        body = request.get_json(force=True)
+
+        mentor_id = body.get("mentor_id")
+        title = body.get("title")
+        description = body.get("description", "")
+        deadline = body.get("deadline")
+        mentor_name = body.get("mentor_name", "")
+        attachments = body.get("attachments", [])
+        works = body.get("works", [])
+
+        if not mentor_id or not title:
+            return bad("mentor_id and title are required")
+
+        if not works or len(works) == 0:
+            return bad("At least one work/question is required")
+
+        # normalize deadline
+        if deadline:
+            try:
+                if len(deadline) == 10:
+                    deadline_dt = datetime.fromisoformat(deadline + "T23:59:59")
+                else:
+                    deadline_dt = datetime.fromisoformat(deadline)
+            except Exception:
+                return bad("Invalid deadline format. Use YYYY-MM-DD or ISO8601.")
+        else:
+            deadline_dt = None
+
+        # student targets
+        target_student_ids = []
+        if body.get("student_id"):
+            target_student_ids = [body["student_id"]]
+        elif body.get("student_ids"):
+            target_student_ids = list(map(str, body["student_ids"]))
+        else:
+            return bad("Provide student_id or student_ids")
+
+        created = []
+        now = datetime.utcnow()
+
+        for sid in target_student_ids:
+            doc = {
+                "mentor_id": str(mentor_id),
+              
+                "student_id": str(sid),
+                "title": title,
+                "description": description,
+                "deadline": deadline_dt,
+                "status": "assigned",
+                "created_at": now,
+                "updated_at": now,
+                "attachments": attachments,
+                "turnIn": [],
+                "works": works    # << NEW (list of Qs)
+            }
+            ins = tasks.insert_one(doc)
+            doc["_id"] = ins.inserted_id
+            created.append(sdoc(doc))
+
+        return ok({"message": "Tasks created", "tasks": created})
+
+    except Exception as e:
+        return ok({"message": "Error creating task", "error": str(e)}, 500)
+
+
+from bson import ObjectId
+from datetime import datetime
+
+def serialize(obj):
+    """Recursively convert ObjectId and datetime in dicts/lists to JSON-safe formats."""
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {k: serialize(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize(v) for v in obj]
+    else:
+        return obj
+
+
+@app.route("/get_tasks/<student_id>", methods=["GET"])
+@cross_origin()
+def get_tasks_for_student(student_id):
+    try:
+        cur = tasks.find({"student_id": str(student_id)}).sort("created_at", -1)
+        docs = [serialize(x) for x in cur]   # use recursive serializer
+        return ok(docs)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return bad(f"Error fetching tasks: {str(e)}", 500)
+
+
+
+@app.route("/get_tasks_by_mentor/<mentor_id>", methods=["GET"])
+@cross_origin()
+def get_tasks_by_mentor(mentor_id):
+    """
+    List all tasks created by a mentor.
+    """
+    try:
+        cur = tasks.find({"mentor_id": str(mentor_id)}).sort("created_at", -1)
+        return ok([sdoc(x) for x in cur])
+    except Exception as e:
+        return ok({"message": "Error fetching mentor tasks", "error": str(e)}, 500)
+
+
+@app.route("/update_task/<task_id>", methods=["PUT"])
+@cross_origin()
+def update_task(task_id):
+    """
+    Update task fields (mentor only).
+    Body JSON can include: title, description, deadline, status, attachments
+    """
+    try:
+        tid = oid(task_id)
+        if not tid:
+            return bad("Invalid task_id")
+
+        body = request.get_json(force=True)
+        update = {}
+        for f in ["title", "description", "status", "attachments"]:
+            if f in body:
+                update[f] = body[f]
+
+        if "deadline" in body:
+            dl = body["deadline"]
+            if dl:
+                try:
+                    if len(dl) == 10:
+                        update["deadline"] = datetime.fromisoformat(dl + "T23:59:59")
+                    else:
+                        update["deadline"] = datetime.fromisoformat(dl)
+                except Exception:
+                    return bad("Invalid deadline format.")
+            else:
+                update["deadline"] = None
+
+        if not update:
+            return bad("Nothing to update")
+        update["updated_at"] = datetime.utcnow()
+
+        res = tasks.update_one({"_id": tid}, {"$set": update})
+        if res.matched_count == 0:
+            return bad("Task not found", 404)
+        doc = tasks.find_one({"_id": tid})
+        return ok(sdoc(doc))
+    except Exception as e:
+        return ok({"message": "Error updating task", "error": str(e)}, 500)
+
+
+@app.route("/delete_task/<task_id>", methods=["DELETE"])
+@cross_origin()
+def delete_task(task_id):
+    """
+    Delete a task and its submissions (mentor).
+    """
+    try:
+        tid = oid(task_id)
+        if not tid:
+            return bad("Invalid task_id")
+
+        # delete submissions + any files from GridFS
+        subs = list(submissions.find({"task_id": str(tid)}))
+        for sub in subs:
+            file_id = sub.get("file_id")
+            if file_id:
+                try:
+                    fs.delete(ObjectId(file_id))
+                except Exception:
+                    pass
+        submissions.delete_many({"task_id": str(tid)})
+
+        res = tasks.delete_one({"_id": tid})
+        if res.deleted_count == 0:
+            return bad("Task not found", 404)
+        return ok({"message": "Task deleted"})
+    except Exception as e:
+        return ok({"message": "Error deleting task", "error": str(e)}, 500)
+
+# ======================================================================
+#                           SUBMISSIONS
+# ======================================================================
+
+@app.route("/get_submissions/<task_id>", methods=["GET"])
+@cross_origin()
+def get_submissions(task_id):
+    """
+    List submissions for a task (mentor view).
+    """
+    try:
+        tid = oid(task_id)
+        if not tid:
+            return bad("Invalid task_id")
+        cur = submissions.find({"task_id": str(tid)}).sort("submitted_at", -1)
+        return ok([sdoc(x) for x in cur])
+    except Exception as e:
+        return ok({"message": "Error fetching submissions", "error": str(e)}, 500)
+
+
+submissions = db["submissions"]
+
+
+@app.route("/submit_task/<task_id>", methods=["POST"])
+def submit_task(task_id):
+    try:
+        # Safely extract JSON if available
+        data = {}
+        if request.is_json:
+            data = request.get_json(force=True, silent=True) or {}
+
+        student_id = request.form.get("student_id") or data.get("student_id")
+        work = request.form.get("work") or data.get("work")
+        content_text = request.form.get("content_text") or data.get("content_text")
+        content_url = request.form.get("content_url") or data.get("content_url")
+
+        file_id = None
+        if "file" in request.files:
+            file = request.files["file"]
+            if file:
+                filename = secure_filename(file.filename)
+                file_id = fs.put(file, filename=filename, content_type=file.content_type)
+
+        doc = {
+            "task_id": str(task_id),
+            "student_id": str(student_id),
+            "work": work,
+            "content_text": content_text,
+            "file_id": str(file_id) if file_id else None,
+            "content_url": content_url,
+            "submitted_at": datetime.now(timezone.utc),
+            "score": None,
+            "feedback": None,
+            "evaluated_by": None,
+            "evaluated_at": None,
+        }
+
+        result = submissions.insert_one(doc)
+        doc["_id"] = result.inserted_id  # Mongo _id
+
+        tasks.update_one({"_id": ObjectId(task_id)},{"$addToSet": {"turnIn": {"student_id": str(student_id), "work": work}}})
+
+
+        return jsonify({
+            "message": "Submission saved",
+            "submission": serialize_doc(doc)
+        }), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()  # print full error in console
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/get_submission_file/<file_id>", methods=["GET"])
+@cross_origin()
+def get_submission_file(file_id):
+    """
+    Stream the uploaded file back (for mentor to view).
+    """
+    try:
+        fid = oid(file_id)
+        if not fid:
+            return bad("Invalid file_id")
+        gf = fs.get(fid)
+        return app.response_class(
+            gf.read(),
+            mimetype=gf.metadata.get("contentType", "application/octet-stream"),
+            headers={"Content-Disposition": f'inline; filename="{gf.filename}"'}
+        )
+    except Exception as e:
+        return ok({"message": "File not found", "error": str(e)}, 404)
+
+
+@app.route("/evaluate_submission/<submission_id>", methods=["PUT"])
+@cross_origin()
+def evaluate_submission(submission_id):
+    """
+    Mentor scores and leaves feedback.
+    Body JSON:
+    {
+      "score": 0-100,
+      "feedback": "optional comments",
+      "evaluated_by": "23CDR110"
+    }
+    """
+    try:
+        sid = oid(submission_id)  # I assume this wraps ObjectId(submission_id)
+        if not sid:
+            return bad("Invalid submission_id")
+
+        body = request.get_json(force=True)
+        score = body.get("score")
+        feedback = body.get("feedback", "")
+        evaluated_by = body.get("evaluated_by")
+
+        if score is None or evaluated_by is None:
+            return bad("score and evaluated_by are required")
+
+        res = submissions.update_one(
+            {"_id": sid},
+            {"$set": {
+                "score": int(score),
+                "feedback": feedback,
+                "evaluated_by": str(evaluated_by),
+                "evaluated_at": datetime.utcnow()
+            }}
+        )
+        if res.matched_count == 0:
+            return bad("Submission not found", 404)
+
+        doc = submissions.find_one({"_id": sid})
+        
+        if doc and "task_id" in doc:
+            tasks.update_one(
+                {"_id": oid(doc["task_id"])},
+                {"$addToSet": {
+                    "evaluated": {
+                        "submission_id": sid,
+                        "student_id": doc["student_id"],
+                        "score": doc["score"],
+                        "evaluated_by": doc["evaluated_by"],
+                        "evaluated_at": doc["evaluated_at"]
+                    }
+                }}
+            )
+
+        return ok(sdoc(doc))   # ✅ returning updated doc
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return bad(f"Error evaluating submission: {str(e)}", 500)
+
+@app.route("/delete_submission/<submission_id>", methods=["DELETE"])
+@cross_origin()
+def delete_submission(submission_id):
+    """
+    Delete a submission (e.g., mentor/admin cleanup).
+    """
+    try:
+        sid = oid(submission_id)
+        if not sid:
+            return bad("Invalid submission_id")
+
+        sub = submissions.find_one({"_id": sid})
+        if not sub:
+            return bad("Submission not found", 404)
+
+        file_id = sub.get("file_id")
+        if file_id:
+            try:
+                fs.delete(ObjectId(file_id))
+            except Exception:
+                pass
+
+        submissions.delete_one({"_id": sid})
+        return ok({"message": "Submission deleted"})
+    except Exception as e:
+        return ok({"message": "Error deleting submission", "error": str(e)}, 500)
+
+
+@app.route("/get_submission/<submission_id>", methods=["GET"])
+def get_submission(submission_id):
+    sub = submissions.find_one({"_id": ObjectId(submission_id)})
+    if not sub:
+        return bad("Submission not found")
+    return ok(sdoc(sub))
+
+
+
+
+
+from flask import Response
+from bson import ObjectId
+
+@app.route("/get_file_task/<file_id>", methods=["GET"])
+def get_file(file_id):
+    try:
+        # Convert file_id back to ObjectId
+        file_obj = fs.get(ObjectId(file_id))
+
+        # Stream the file back to client
+        return Response(
+            file_obj.read(),
+            mimetype=file_obj.content_type,
+            headers={
+                "Content-Disposition": f"attachment; filename={file_obj.filename}"
+            }
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 404
+
+
+# ======================================================================
+#                          HEALTH / DEBUG
+# ======================================================================
+@app.route("/health", methods=["GET"])
+def health():
+    return ok({"status": "ok", "time": datetime.utcnow().isoformat()})
 
 
 
