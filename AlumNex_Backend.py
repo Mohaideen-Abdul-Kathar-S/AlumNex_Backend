@@ -20,11 +20,18 @@ from bson import ObjectId
 import gridfs, io, datetime
 import fitz  # PyMuPDF
 
+from flask import Flask, redirect, request, session, url_for, jsonify
+import google.oauth2.credentials
+import google_auth_oauthlib.flow
+import googleapiclient.discovery
+import os
+import json
 
 # mongodb+srv://mohaideenabdulkathars23csd:DzSbHU79AfKPkOk6@cluster0.8v7rv29.mongodb.net/alumnex?retryWrites=true&w=majority&appName=Cluster0
 # mongodb://localhost:27017/
 
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "super_secret_dev_key")
 CORS(app)
 try:
     # Get from environment variable
@@ -36,6 +43,82 @@ try:
     print("✅ MongoDB connected successfully!")
 except Exception as e:
     print("❌ Failed to connect to MongoDB:", e)
+
+
+
+# Google OAuth config using environment variables
+SCOPES = ['https://www.googleapis.com/auth/calendar']
+CLIENT_CONFIG = {
+    "web": {
+        "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "redirect_uris": [os.getenv("GOOGLE_REDIRECT_URI")],
+    }
+}
+
+# Step 1: Redirect host to Google login
+@app.route('/')
+def index():
+    return 'AlumNex Google Integration'
+
+@app.route('/authorize')
+def authorize():
+    flow = google_auth_oauthlib.flow.Flow.from_client_config(
+        CLIENT_CONFIG, scopes=SCOPES
+    )
+    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    authorization_url, state = flow.authorization_url(
+        access_type='offline', include_granted_scopes='true'
+    )
+    session['state'] = state
+    return redirect(authorization_url)
+
+# Step 2: Google redirects here after login
+@app.route('/auth/callback')
+def oauth2callback():
+    flow = google_auth_oauthlib.flow.Flow.from_client_config(
+        CLIENT_CONFIG, scopes=SCOPES, state=session['state']
+    )
+    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    flow.fetch_token(authorization_response=request.url)
+
+    credentials = flow.credentials
+    session['credentials'] = {
+        'token': credentials.token,
+        'refresh_token': credentials.refresh_token,
+        'token_uri': credentials.token_uri,
+        'client_id': credentials.client_id,
+        'client_secret': credentials.client_secret,
+        'scopes': credentials.scopes
+    }
+    return "✅ Authorization successful! You can return to the AlumNex app now."
+
+# Step 3: Create Google Meet
+@app.route('/create_gmeet')
+def create_gmeet():
+    if 'credentials' not in session:
+        return redirect(url_for('authorize'))
+
+    creds = google.oauth2.credentials.Credentials(**session['credentials'])
+    service = googleapiclient.discovery.build('calendar', 'v3', credentials=creds)
+
+    event = {
+        'summary': 'AlumNex Meet',
+        'description': 'Meeting between student and alumni',
+        'start': {'dateTime': '2025-08-21T10:00:00+05:30'},
+        'end': {'dateTime': '2025-08-21T11:00:00+05:30'},
+        'conferenceData': {'createRequest': {'requestId': 'alumnex-meet-001'}}
+    }
+
+    created_event = service.events().insert(
+        calendarId='primary', body=event, conferenceDataVersion=1
+    ).execute()
+
+    meet_link = created_event['conferenceData']['entryPoints'][0]['uri']
+    return jsonify({'meet_link': meet_link})
+
 
 
 
