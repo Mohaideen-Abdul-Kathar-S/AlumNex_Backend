@@ -31,11 +31,11 @@ import json
 # mongodb://localhost:27017/
 
 app = Flask(__name__)
-# app.secret_key = os.getenv("FLASK_SECRET_KEY", "super_secret_dev_key")
+
 CORS(app)
 try:
     # Get from environment variable
-    MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+    MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://mohaideenabdulkathars23csd:DzSbHU79AfKPkOk6@cluster0.8v7rv29.mongodb.net/alumnex?retryWrites=true&w=majority&appName=Cluster0")
     
     client = MongoClient(MONGO_URI)
     db = client["alumnex"]   # your DB name
