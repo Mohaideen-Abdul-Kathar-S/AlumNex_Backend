@@ -31,11 +31,11 @@ import json
 # mongodb://localhost:27017/
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "super_secret_dev_key")
+# app.secret_key = os.getenv("FLASK_SECRET_KEY", "super_secret_dev_key")
 CORS(app)
 try:
     # Get from environment variable
-    MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://mohaideenabdulkathars23csd:DzSbHU79AfKPkOk6@cluster0.8v7rv29.mongodb.net/alumnex?retryWrites=true&w=majority&appName=Cluster0")
+    MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
     
     client = MongoClient(MONGO_URI)
     db = client["alumnex"]   # your DB name
@@ -43,81 +43,6 @@ try:
     print("✅ MongoDB connected successfully!")
 except Exception as e:
     print("❌ Failed to connect to MongoDB:", e)
-
-
-
-# Google OAuth config using environment variables
-SCOPES = ['https://www.googleapis.com/auth/calendar']
-CLIENT_CONFIG = {
-    "web": {
-        "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "redirect_uris": [os.getenv("GOOGLE_REDIRECT_URI")],
-    }
-}
-
-# Step 1: Redirect host to Google login
-@app.route('/')
-def index():
-    return 'AlumNex Google Integration'
-
-@app.route('/authorize')
-def authorize():
-    flow = google_auth_oauthlib.flow.Flow.from_client_config(
-        CLIENT_CONFIG, scopes=SCOPES
-    )
-    flow.redirect_uri = url_for('oauth2callback', _external=True)
-    authorization_url, state = flow.authorization_url(
-        access_type='offline', include_granted_scopes='true'
-    )
-    session['state'] = state
-    return redirect(authorization_url)
-
-# Step 2: Google redirects here after login
-@app.route('/auth/callback')
-def oauth2callback():
-    flow = google_auth_oauthlib.flow.Flow.from_client_config(
-        CLIENT_CONFIG, scopes=SCOPES, state=session['state']
-    )
-    flow.redirect_uri = url_for('oauth2callback', _external=True)
-    flow.fetch_token(authorization_response=request.url)
-
-    credentials = flow.credentials
-    session['credentials'] = {
-        'token': credentials.token,
-        'refresh_token': credentials.refresh_token,
-        'token_uri': credentials.token_uri,
-        'client_id': credentials.client_id,
-        'client_secret': credentials.client_secret,
-        'scopes': credentials.scopes
-    }
-    return "✅ Authorization successful! You can return to the AlumNex app now."
-
-# Step 3: Create Google Meet
-@app.route('/create_gmeet')
-def create_gmeet():
-    if 'credentials' not in session:
-        return redirect(url_for('authorize'))
-
-    creds = google.oauth2.credentials.Credentials(**session['credentials'])
-    service = googleapiclient.discovery.build('calendar', 'v3', credentials=creds)
-
-    event = {
-        'summary': 'AlumNex Meet',
-        'description': 'Meeting between student and alumni',
-        'start': {'dateTime': '2025-08-21T10:00:00+05:30'},
-        'end': {'dateTime': '2025-08-21T11:00:00+05:30'},
-        'conferenceData': {'createRequest': {'requestId': 'alumnex-meet-001'}}
-    }
-
-    created_event = service.events().insert(
-        calendarId='primary', body=event, conferenceDataVersion=1
-    ).execute()
-
-    meet_link = created_event['conferenceData']['entryPoints'][0]['uri']
-    return jsonify({'meet_link': meet_link})
 
 
 
@@ -209,7 +134,7 @@ def UserLogin():
     return jsonify('error in user login'), 401
 
 
-
+ 
 @cross_origin
 @app.route('/register', methods=['POST'])
 def UserRegister():
@@ -330,17 +255,33 @@ def search_users():
 
 
 
+from bson import ObjectId
+import io
+from flask import send_file, jsonify
+
 @app.route('/get-profile/<user_id>', methods=['GET'])
 def get_profile(user_id):
-    user = db.users.find_one({"_id": user_id})
-    if not user or 'profile' not in user:
-        return jsonify({'message': 'No profile image found'}), 404
-
     try:
-        file = fs.get(ObjectId(user['profile']))
+        # Check if user_id is a valid ObjectId, else use as plain string
+        query = {"_id": ObjectId(user_id)} if ObjectId.is_valid(user_id) else {"_id": user_id}
+
+        user = db.users.find_one(query)
+
+        if not user or 'profile' not in user:
+            return jsonify({'message': 'No profile image found'}), 404
+
+        profile_id = user['profile']
+
+        # If profile is a string, convert to ObjectId
+        if isinstance(profile_id, str) and ObjectId.is_valid(profile_id):
+            profile_id = ObjectId(profile_id)
+
+        file = fs.get(profile_id)
         return send_file(io.BytesIO(file.read()), mimetype=file.metadata['contentType'])
+
     except Exception as e:
         return jsonify({'message': 'Error fetching image', 'error': str(e)}), 500
+
 
 @app.route('/upload_post', methods=['POST'])
 @cross_origin()
@@ -388,7 +329,7 @@ def get_events():
             post['_id'] = str(post['_id'])  # Convert ObjectId to string
             if 'postImageId' in post:
                 post['postImageId'] = str(post['postImageId'])
-
+        posts.reverse()
         return jsonify(posts), 200
 
     except Exception as e:
@@ -671,6 +612,7 @@ def get_connections(rollno):
 
     # Safely get "connections" or return empty list if not found
     connections = res.get("connections", [])
+    print("connections ",connections)
     return jsonify(connections), 200
 
 @app.route("/get_user/<id>", methods=["GET"])
@@ -1659,14 +1601,21 @@ def oid(x):
 def iso(dt: datetime | None):
     return dt.isoformat() if isinstance(dt, datetime) else dt
 
+
 def sdoc(doc: dict):
-    """Serialize mongo doc -> JSON-safe dict."""
+    """Serialize mongo doc -> JSON-safe dict (recursive)."""
     out = {}
     for k, v in doc.items():
         if isinstance(v, ObjectId):
             out[k] = str(v)
         elif isinstance(v, datetime):
             out[k] = v.isoformat()
+        elif isinstance(v, list):
+            # Convert ObjectIds or nested docs inside lists
+            out[k] = [str(x) if isinstance(x, ObjectId) else sdoc(x) if isinstance(x, dict) else x for x in v]
+        elif isinstance(v, dict):
+            # Recursively serialize nested dicts
+            out[k] = sdoc(v)
         else:
             out[k] = v
     return out
@@ -2128,6 +2077,183 @@ def get_meeting_name():
         return jsonify({"title": meeting.get("title", "")})
     else:
         return jsonify({"error": "Meeting not found"}), 404
+
+
+
+
+def calculate_today_task_progress(db, student_id):
+    today = datetime.now(timezone.utc).date()
+
+    # 1. Get tasks that are "active" today
+    tasks = list(db.tasks.find({
+        "student_id": student_id,
+        "created_at": {"$lte": datetime.combine(today, datetime.max.time())},
+        "deadline": {"$gte": datetime.combine(today, datetime.min.time())}
+    }))
+
+    total_works_today = 0
+    submitted_works_today = 0
+
+    for task in tasks:
+        works = task.get("works", [])
+        total_works_today += len(works)
+
+        # 2. Get submissions for this task (any time today counts)
+        submissions = list(db.submissions.find({
+            "task_id": str(task["_id"]),
+            "student_id": student_id,
+            "submitted_at": {
+                "$gte": datetime.combine(today, datetime.min.time()),
+                "$lte": datetime.combine(today, datetime.max.time())
+            }
+        }))
+
+        # 3. Each submission = 1 completed work
+        submitted_works_today += len(submissions)
+
+    progress = (submitted_works_today / total_works_today * 100) if total_works_today else 0
+
+    return {
+        "total_works_today": total_works_today,
+        "submitted_works_today": submitted_works_today,
+        "progress_percent": round(progress, 2)
+    }
+
+from datetime import datetime, timezone, timedelta
+
+def calculate_today_score_progress(db, student_id):
+    today = datetime.now(timezone.utc).date()
+
+    # find tasks active today
+    tasks = list(db.tasks.find({
+        "student_id": student_id,
+        "created_at": {"$lte": datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc)},
+        "deadline": {"$gte": datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)}
+    }))
+
+    total_task_score = 0   # denominator = number_of_tasks * 100
+    total_work = 0   # numerator = sum of task averages
+
+    for task in tasks:
+        works = task.get("works", [])
+        if not works:
+            continue
+
+        work_scores = []
+        total_work += len(works)    
+        for work in works:
+            submission = db.submissions.find_one({
+                "task_id": str(task["_id"]),
+                "student_id": student_id,
+                "work": work
+            })
+
+            if submission and submission.get("score") is not None:
+                work_scores.append(submission["score"])
+            else:
+                work_scores.append(0)
+
+        # task average (out of 100)
+        total_score = sum(work_scores)
+      
+
+    progress_percent = (total_score / total_work ) if total_work != 0 else 0
+
+    return {
+        "total_score": total_score,
+        "total_work": total_work,  
+        "progress_percent": round(progress_percent, 2),
+      
+    }
+
+    
+@app.route("/api/student/<student_id>/progress/today", methods=["GET"])
+def student_progress(student_id):
+    student_id = str(student_id)
+    
+    # Tasks
+    task_completion = calculate_today_task_progress(db, student_id)
+    print("Task completion data:", task_completion)
+
+
+    # Average Score
+    avg_score = calculate_today_score_progress(db, student_id)
+    print("Score completion data:", avg_score)
+
+
+    # Engagement
+    posts = list(db.posts.find({"rollno": student_id}))
+    posts_count = len(posts)
+    likes_count = sum([len(p.get("likeset", [])) for p in posts])
+    comments_count = sum([len(p.get("comments", {}).keys()) for p in posts])
+    engagement_score = posts_count + likes_count + comments_count
+    print("Engagement score:", engagement_score)
+
+    today = datetime.now(timezone.utc).date().isoformat()
+
+    db.progress.update_one(
+        {"student_id": student_id, "date": today},
+        {"$set": {
+            "task_completion": task_completion['progress_percent'],
+            "average_score": avg_score['progress_percent'],
+            "engagement_score": engagement_score,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+
+
+
+
+    return jsonify({
+        "task_completion": task_completion,
+        "average_score": avg_score,
+        "engagement_score": engagement_score,
+
+    })
+
+@app.route("/api/student/<student_id>/progress/overall", methods=["GET"])
+def get_overall_progress(student_id):
+    progress_col = db["progress"]
+    try:
+        # Fetch all progress docs for student sorted by date ascending
+        records = list(progress_col.find(
+            {"student_id": student_id},
+            {"_id": 0, "student_id": 1, "date": 1,
+             "task_completion": 1, "average_score": 1,
+             "engagement_score": 1}
+        ).sort("date", 1))
+
+        # Convert datetime to string if needed
+        for r in records:
+            if isinstance(r.get("date"), datetime):
+                r["date"] = r["date"].strftime("%Y-%m-%d")
+
+        return jsonify(records), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/alumni", methods=["GET"])
+@cross_origin()
+def get_alumni():
+    users_collection = db['users']
+    try:
+        # Filter only Alumni
+        alumni_list = list(users_collection.find({"roll": "Alumni"}))
+
+        # Convert ObjectId to string
+        for alumni in alumni_list:
+            alumni["_id"] = str(alumni["_id"])
+            if "profile" in alumni:
+                alumni["profile"] = str(alumni["profile"])
+
+        return jsonify(alumni_list), 200
+
+    except Exception as e:
+        return jsonify({"message": "Error fetching alumni", "error": str(e)}), 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
