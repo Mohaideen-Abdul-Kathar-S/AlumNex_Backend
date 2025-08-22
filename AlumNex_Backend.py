@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 from csv import reader
 from datetime import datetime
@@ -26,7 +28,20 @@ import google_auth_oauthlib.flow
 import googleapiclient.discovery
 import os
 import json
+import random, smtplib, ssl
 
+
+
+import os
+from datetime import datetime, timezone
+from typing import List, Dict, Any
+
+
+from bson import ObjectId
+from bson.json_util import dumps
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from pymongo import MongoClient, ASCENDING, TEXT
 # mongodb+srv://mohaideenabdulkathars23csd:DzSbHU79AfKPkOk6@cluster0.8v7rv29.mongodb.net/alumnex?retryWrites=true&w=majority&appName=Cluster0
 # mongodb://localhost:27017/
 
@@ -43,8 +58,6 @@ try:
     print("✅ MongoDB connected successfully!")
 except Exception as e:
     print("❌ Failed to connect to MongoDB:", e)
-
-
 
 
 
@@ -995,10 +1008,11 @@ def get_groups(id):
 def get_group_messages(group_id):
     messages_collection = db['group_messages']
     messages = messages_collection.find({"group_id": group_id}).sort("timestamp", 1)
-
+    print(messages)
     message_list = []
     for msg in messages:
         message_list.append({
+            "id": str(msg["_id"]),
             "sender": msg["sender"],
             "message": msg["message"],
             "timestamp": msg["timestamp"].isoformat()
@@ -1018,7 +1032,7 @@ def send_group_message():
     }
 
     db['group_messages'].insert_one(message_doc)
-    return jsonify({"status": "success"}), 201
+    return jsonify({"status": "success"}), 200
 
 
 @app.route('/submit_comment', methods=['POST'])
@@ -2133,13 +2147,14 @@ def calculate_today_score_progress(db, student_id):
 
     total_task_score = 0   # denominator = number_of_tasks * 100
     total_work = 0   # numerator = sum of task averages
-
+    work_scores = []
+    total_score = 0
     for task in tasks:
         works = task.get("works", [])
         if not works:
             continue
 
-        work_scores = []
+
         total_work += len(works)    
         for work in works:
             submission = db.submissions.find_one({
@@ -2253,6 +2268,379 @@ def get_alumni():
 
     except Exception as e:
         return jsonify({"message": "Error fetching alumni", "error": str(e)}), 500
+
+
+@app.route("/api/get_contact", methods=["POST"])
+def get_contact():
+    data = request.get_json()
+    rollno = data.get("rollno")
+    
+    student = alumni.find_one({"_id": rollno})
+    if not student:
+        return jsonify({"success": False, "message": "Roll number not found"}), 404
+    
+    return jsonify({
+        "success": True,
+        "rollno": student["_id"],
+        "email": student["email"],
+        "phoneno": student["phoneno"]
+    })
+
+
+alumni = db["alumni"]
+
+otp_storage = {}  # {rollno: otp}
+
+import random
+
+def generate_otp():
+    return str(random.randint(1000, 9999))
+
+@app.route("/api/send_otp", methods=["POST"])
+def send_otp():
+    data = request.get_json()
+    rollno = data.get("rollno")
+    method = data.get("method")  # "email" or "phone"
+
+    student = alumni.find_one({"_id": rollno})
+    if not student:
+        return jsonify({"success": False, "message": "Roll number not found"}), 404
+
+    otp = generate_otp()
+    otp_storage[rollno] = otp
+
+    if method == "email":
+        receiver = student["email"]
+        port = 465
+        smtp_server = "smtp.gmail.com"
+        sender = "forstudying921@gmail.com"
+        password = "snmfdxflsplnynlh"  # Use App Password, not your real Gmail password
+
+        message = f"Subject: Your OTP\n\nYour OTP is: {otp}"
+
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(smtp_server, port, context=context) as server:
+            server.login(sender, password)
+            server.sendmail(sender, receiver, message)
+
+    elif method == "phone":
+        # Example Twilio SMS sending
+        from twilio.rest import Client
+        account_sid = "TWILIO_SID"
+        auth_token = "TWILIO_AUTH_TOKEN"
+        client = Client(account_sid, auth_token)
+        client.messages.create(
+            body=f"Your OTP is {otp}",
+            from_="+1234567890",  # Twilio number
+            to=student["phoneno"]
+        )
+
+    return jsonify({"success": True, "message": f"OTP sent via {method}"})
+
+@app.route("/api/verify_otp", methods=["POST"])
+def verify_otp():
+    users_col = db['users']
+
+    data = request.get_json()
+    rollno = data.get("rollno")
+    password = data.get("password")
+    otp = data.get("otp")
+
+    # Check if OTP matches
+    if otp_storage.get(rollno) == otp:
+        user_data = {
+            "roll": "Alumni",
+            "_id": rollno,
+            "password": password,
+            "profile": "Path",
+            "name": "Nill",
+            "Gender": "Nill",
+            "email": "Nill",
+            "phoneno": "Nill",
+            "location": "Nill",
+            "programbranch": "Nill",
+            "Batch": "Nill",
+            "preferredroll": "Nill",
+            "Higherstudies": "Nill",
+            "Dreamcompany": "Nill",
+            "TechSkills": "Nill",
+            "certificaion": "Nill",
+            "projects": "Nill",
+            "clubs": "Nill",
+            "mentoredby": "Nill",
+            "domain": "Nill",
+            "currentjob": "Nill",
+            "company": "Nill",
+            "yoe": "Nill",
+            "workedin": "Nill",
+            "mentoring": [],
+        }
+
+        # Insert user into MongoDB if not exists
+        existing_user = users_col.find_one({"_id": rollno})
+        if not existing_user:
+            users_col.insert_one(user_data)
+
+        # Delete OTP after verification for security
+        otp_storage.pop(rollno, None)
+
+        return jsonify({"success": True, "message": "OTP verified and user stored"})
+
+    return jsonify({"success": False, "message": "Invalid OTP"}), 400
+
+
+
+
+# Collections
+communities = db["communities"]
+groups = db["groups"]
+messages = db["group_messages"]
+message_versions = db["message_versions"]  # immutable versions
+snapshots = db["snapshots"]
+bookmarks = db["bookmarks"]
+
+
+# ----------------------------
+# Helpers
+# ----------------------------
+
+def oid(x: str | ObjectId) -> ObjectId:
+    return x if isinstance(x, ObjectId) else ObjectId(x)
+
+
+def now_utc():
+    return datetime.now(timezone.utc)
+
+
+# Keep only allowed fields when returning data
+SAFE_MESSAGE_FIELDS = {
+    "_id", "group_id", "sender", "message", "timestamp", "tags", "edited",
+}
+
+
+def serialize_message(msg):
+    return {
+        "id": str(msg["_id"]),   # 👈 ensure string
+        "message": msg["message"],
+        "tags": msg.get("tags", []),
+        "timestamp": msg.get("timestamp"),
+        "edited": msg.get("edited", False),
+        "sender": msg.get("sender"),
+    }
+
+# ----------------------------
+# Indexes (run once)
+# ----------------------------
+
+def create_indexes():
+    groups.create_index([("community_id", ASCENDING)])
+    messages.create_index([("group_id", ASCENDING), ("timestamp", ASCENDING)])
+    # Full-text search on message and tags
+    messages.create_index([("message", TEXT), ("tags", TEXT)], name="msg_text_index")
+    message_versions.create_index([("message_id", ASCENDING), ("version", ASCENDING)], unique=True)
+    snapshots.create_index([("group_id", ASCENDING), ("created_at", ASCENDING)])
+    bookmarks.create_index([("group_id", ASCENDING), ("user_id", ASCENDING)])
+
+
+
+
+
+
+@app.get("/groups/<community_id>")
+def list_groups(community_id):
+    cur = groups.find({"community_id": community_id})
+    return dumps(list(cur)), 200, {"Content-Type": "application/json"}
+
+
+
+@app.put("/edit_message/<message_id>")
+def edit_message(message_id):
+    data = request.get_json(force=True)
+    new_content = data.get("message", "").strip()
+    editor = data.get("editor")
+    new_tags = data.get("tags")  # optional replacement
+
+    if not new_content:
+        return jsonify({"error": "message required"}), 400
+
+    msg = messages.find_one({"_id": oid(message_id)})
+    if not msg:
+        return jsonify({"error": "message not found"}), 404
+
+    # increment version
+    last = list(message_versions.find({"message_id": message_id}).sort("version", -1).limit(1))
+    last_version = last[0]["version"] if last else 1
+    next_version = int(last_version) + 1
+
+    # save new immutable version
+    version_doc = {
+        "message_id": message_id,
+        "version": next_version,
+        "content": new_content,
+        "tags": new_tags if new_tags is not None else msg.get("tags", []),
+        "edited_at": now_utc(),
+        "edited_by": editor,
+    }
+    message_versions.insert_one(version_doc)
+
+    # update live message
+    upd = {
+        "$set": {
+            "message": new_content,
+            "tags": new_tags if new_tags is not None else msg.get("tags", []),
+            "edited": True,
+            "timestamp": now_utc(),  # optional: bump order when edited
+        }
+    }
+    messages.update_one({"_id": oid(message_id)}, upd)
+
+    return jsonify({"status": "ok", "version": next_version})
+
+
+@app.get("/message_versions/<message_id>")
+def get_message_versions(message_id):
+    cur = message_versions.find({"message_id": message_id}).sort("version", ASCENDING)
+    docs = list(cur)
+    for d in docs:
+        d["_id"] = str(d["_id"])  # type: ignore
+    return dumps(docs), 200, {"Content-Type": "application/json"}
+
+
+# ----------------------------
+# Snapshots (Bookmark a conversation slice)
+# ----------------------------
+@app.post("/snapshot")
+def create_snapshot():
+    data = request.get_json(force=True)
+    group_id = data["group_id"]
+    message_ids: List[str] = data.get("message_ids", [])
+    title = data.get("title", "Snapshot")
+    created_by = data.get("user_id")
+
+    snap = {
+        "group_id": group_id,
+        "title": title,
+        "created_by": created_by,
+        "created_at": now_utc(),
+        "message_ids": message_ids,
+    }
+    res = snapshots.insert_one(snap)
+    return jsonify({"status": "ok", "snapshot_id": str(res.inserted_id)})
+
+@app.get("/snapshots/<group_id>")
+def list_snapshots(group_id):
+    snaps = list(snapshots.find({"group_id": group_id}).sort("created_at", -1))
+    for s in snaps:
+        s["_id"] = str(s["_id"])
+        s["messages"] = []   # ✅ add empty array (or fetch like in get_snapshot)
+    return jsonify(snaps)
+@app.get("/snapshot/messages/<snapshot_id>")
+def get_snapshot_messages(snapshot_id):
+    group_message = db["group_messages"]
+    snapshots = db["snapshots"]
+
+    snap = snapshots.find_one({"_id": oid(snapshot_id)})
+    if not snap:
+        return jsonify({"error": "snapshot not found"}), 404
+
+    msg_ids = snap.get("message_ids", [])
+    if not msg_ids:
+        return jsonify({"messages": []})
+
+    # Fetch messages from group_message collection
+    msgs = list(group_message.find({
+        "_id": {"$in": [oid(m) for m in msg_ids]}
+    }).sort("timestamp", ASCENDING))
+
+    for m in msgs:
+        m["_id"] = str(m["_id"])  # convert ObjectId → string
+
+    resp = {
+        "_id": str(snap["_id"]),
+        "group_id": snap["group_id"],
+        "title": snap["title"],
+        "created_at": snap["created_at"],
+        "created_by": snap.get("created_by"),
+        "messages": [serialize_message(m) for m in msgs],  # ✅ fixed
+    }
+    return jsonify(resp)
+
+
+@app.get("/snapshot/<snapshot_id>")
+def get_snapshot(snapshot_id):
+    snap = snapshots.find_one({"_id": oid(snapshot_id)})
+    if not snap:
+        return jsonify({"error": "snapshot not found"}), 404
+    # fetch messages
+    msgs = list(messages.find({"_id": {"$in": [oid(m) for m in snap["message_ids"]]}}).sort("timestamp", ASCENDING))
+    for m in msgs:
+        m["_id"] = str(m["_id"])  # type: ignore
+    resp = {
+        "_id": str(snap["_id"]),
+        "group_id": snap["group_id"],
+        "title": snap["title"],
+        "created_at": snap["created_at"],
+        "created_by": snap.get("created_by"),
+        "messages": [sanitize_message(m) for m in msgs],
+    }
+    return jsonify(resp)
+
+
+# ----------------------------
+# Quick Bookmarks (per user)
+# ----------------------------
+@app.post("/bookmark")
+def create_bookmark():
+    data = request.get_json(force=True)
+    doc = {
+        "group_id": data["group_id"],
+        "user_id": data["user_id"],
+        "title": data.get("title", "Bookmark"),
+        "message_ids": data.get("message_ids", []),  # allow one or many
+        "created_at": now_utc(),
+    }
+    res = bookmarks.insert_one(doc)
+    return jsonify({"status": "ok", "bookmark_id": str(res.inserted_id)})
+
+
+@app.get("/bookmarks")
+def list_bookmarks():
+    group_id = request.args.get("group_id")
+    user_id = request.args.get("user_id")
+    q = {}
+    if group_id:
+        q["group_id"] = group_id
+    if user_id:
+        q["user_id"] = user_id
+    cur = bookmarks.find(q).sort("created_at", -1)
+    docs = list(cur)
+    for d in docs:
+        d["_id"] = str(d["_id"])  # type: ignore
+    return dumps(docs), 200, {"Content-Type": "application/json"}
+
+@app.get("/search")
+def search_messages():
+    group_id = request.args.get("group_id")
+    query = request.args.get("q", "").strip()
+    tags = request.args.getlist("tag")  # /search?tag=flutter&tag=api
+
+    q: Dict[str, Any] = {}
+    if group_id:
+        q["group_id"] = group_id
+
+    clauses: List[Dict[str, Any]] = []
+    if query:
+        clauses.append({"message": {"$regex": query, "$options": "i"}})  # <-- regex search instead of $text
+    if tags:
+        clauses.append({"tags": {"$all": tags}})
+
+    if clauses:
+        q["$and"] = clauses
+
+    cur = messages.find(q).sort("timestamp", -1)
+
+    docs = [serialize_message(d) for d in cur.limit(100)]  # <--- FIXED
+    return jsonify(docs)
 
 
 if __name__ == '__main__':
